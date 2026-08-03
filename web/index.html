@@ -6,7 +6,44 @@
     <title>tasker</title>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <main class="layout">
+        <section class="panel">
+          <h1>tasker</h1>
+          <p class="status" data-testid="status">Enter your Nextcloud credentials to load tasks.</p>
+          <form id="auth-form" class="auth-form">
+            <label>
+              <span>Nextcloud URL</span>
+              <input name="baseUrl" type="url" required />
+            </label>
+            <label>
+              <span>Username</span>
+              <input name="username" type="text" required />
+            </label>
+            <label>
+              <span>App password</span>
+              <input name="appPassword" type="password" required />
+            </label>
+            <div class="actions">
+              <button type="submit">Connect</button>
+              <button type="button" id="logout">Clear</button>
+            </div>
+          </form>
+        </section>
+        <section class="panel">
+          <h2>Task list</h2>
+          <ul id="task-list" class="task-list" data-testid="task-list">
+            <li class="empty">No tasks loaded.</li>
+          </ul>
+        </section>
+      </main>
+    </div>
+    <template id="task-template">
+      <li class="task">
+        <span class="task-summary"></span>
+        <span class="categories"></span>
+      </li>
+    </template>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
