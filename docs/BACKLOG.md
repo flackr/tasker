@@ -10,7 +10,7 @@ This document tracks all planned work towards building the complete tasker ecosy
 - [x] Create `docs/DESIGN.md` with full architecture and technical design
 - [x] Create `docs/TESTING.md` with CI/testing strategy
 - [x] Create `docs/BACKLOG.md` (this file)
-- [ ] Add `LICENSE` file (MIT) *(already present)*
+- [x] Add `LICENSE` file (MIT)
 - [ ] Set up `.github/workflows/ci.yml` CI pipeline (unit + E2E + build)
 - [ ] Add `.gitignore` for Node.js, Vite, and Fitbit SDK artifacts
 
