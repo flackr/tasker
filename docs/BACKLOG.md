@@ -11,53 +11,53 @@ This document tracks all planned work towards building the complete tasker ecosy
 - [x] Create `docs/TESTING.md` with CI/testing strategy
 - [x] Create `docs/BACKLOG.md` (this file)
 - [x] Add `LICENSE` file (MIT)
-- [ ] Set up `.github/workflows/ci.yml` CI pipeline (unit + E2E + build)
-- [ ] Add `.gitignore` for Node.js, Vite, and Fitbit SDK artifacts
+- [x] Set up `.github/workflows/deploy.yml` deployment pipeline (build + GitHub Pages)
+- [x] Add `.gitignore` for Node.js, Vite, and Fitbit SDK artifacts
 
 ---
 
 ## Milestone 1 — PWA Scaffold
 
-- [ ] Initialise Vite + TypeScript project under `web/`
+- [x] Initialise Vite + TypeScript project under `web/`
 - [ ] Configure Vite PWA plugin (`vite-plugin-pwa`) for Service Worker generation
-- [ ] Set up Vitest for unit and integration tests
-- [ ] Set up Playwright for E2E tests
-- [ ] Create `web/src/main.ts` entry point
-- [ ] Create bare-bones `index.html` with app shell
-- [ ] Add CSS custom properties design tokens (colours, spacing, typography)
-- [ ] Implement responsive layout (mobile-first, works on 375px viewport)
+- [x] Set up Vitest for unit and integration tests
+- [x] Set up Playwright for E2E tests
+- [x] Create `web/src/main.ts` entry point
+- [x] Create bare-bones `index.html` with app shell
+- [x] Add CSS custom properties design tokens (colours, spacing, typography)
+- [x] Implement responsive layout (mobile-first, works on 375px viewport)
 - [ ] Add `manifest.webmanifest` for PWA installability
 - [ ] Add app icon assets (SVG source + PNG exports at 192×192 and 512×512)
-- [ ] Configure GitHub Pages deployment in CI
+- [x] Configure GitHub Pages deployment in CI
 
 ---
 
 ## Milestone 2 — Authentication
 
 - [ ] Design and implement Settings screen (Nextcloud URL, username, app password, tasker config JSON path)
-- [ ] Implement `auth.ts`: Basic Auth header generation
-- [ ] Store credentials in IndexedDB; persist across sessions (no PIN required on reload)
+- [x] Implement `auth.ts`: Basic Auth header generation
+- [x] Store credentials in IndexedDB; persist across sessions (no PIN required on reload)
 - [ ] On first launch: read `tasker-config.json` from user-provided WebDAV path to bootstrap preferences
-- [ ] Show "connected" / "connection failed" status on Settings screen
-- [ ] Implement logout (clear credentials + cached data)
-- [ ] Write unit tests for `auth.ts`
-- [ ] Write E2E test: enter credentials → tasks load
+- [x] Show "connected" / "connection failed" status on Settings screen
+- [x] Implement logout (clear credentials + cached data)
+- [x] Write unit tests for `auth.ts`
+- [x] Write E2E test: enter credentials → tasks load
 
 ---
 
 ## Milestone 3 — CalDAV Client
 
-- [ ] Implement `caldav/client.ts`:
-  - [ ] `propfindCalendars()` — list all calendar collections
+- [x] Implement `caldav/client.ts`:
+  - [x] `propfindCalendars()` — list all calendar collections
   - [ ] `propfindCTag()` — fetch CTag for a single collection
-  - [ ] `reportTasks()` — fetch all VTODOs from a collection
+  - [x] `reportTasks()` — fetch all VTODOs from a collection
   - [ ] `putTask()` — create or update a single task
   - [ ] `deleteTask()` — delete a task
-- [ ] Implement `caldav/parser.ts`:
-  - [ ] Parse VCALENDAR / VTODO structure
-  - [ ] Map VTODO fields to internal `Task` model
-  - [ ] Handle `CATEGORIES` (comma-separated and multi-value forms)
-  - [ ] Handle `COMPLETED`, `PERCENT-COMPLETE`, `STATUS`
+- [x] Implement `caldav/parser.ts`:
+  - [x] Parse VCALENDAR / VTODO structure
+  - [x] Map VTODO fields to internal `Task` model
+  - [x] Handle `CATEGORIES` (comma-separated and multi-value forms)
+  - [x] Handle `COMPLETED`, `PERCENT-COMPLETE`, `STATUS`
   - [ ] Handle `DTSTART`, `DUE`, `CREATED`, `LAST-MODIFIED` with timezone
 - [ ] Implement `caldav/serializer.ts`:
   - [ ] Serialize `Task` → iCalendar string
@@ -65,7 +65,7 @@ This document tracks all planned work towards building the complete tasker ecosy
   - [ ] Set `DTSTAMP` and `LAST-MODIFIED` to current time
 - [ ] Write unit tests for `parser.ts` (≥ 95% coverage)
 - [ ] Write unit tests for `serializer.ts` (≥ 95% coverage)
-- [ ] Write unit tests for `client.ts` with MSW mocks
+- [x] Write unit tests for `client.ts` with MSW mocks
 
 ---
 
@@ -118,7 +118,7 @@ This document tracks all planned work towards building the complete tasker ecosy
 - [ ] Implement `ui/list-view.ts`:
   - [ ] Fetch tasks from IndexedDB and render grouped by aisle/category
   - [ ] Sort aisles by user-defined order
-  - [ ] Render completed tasks with strikethrough; allow toggling completion
+  - [x] Render completed tasks with strikethrough; allow toggling completion
   - [ ] Pull-to-refresh gesture triggers a manual sync
 - [ ] Implement `ui/task-editor.ts`:
   - [ ] Add task form (summary, category/aisle, notes, priority)
