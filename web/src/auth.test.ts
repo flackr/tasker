@@ -4,6 +4,7 @@ import { clearCredentials, createBasicAuthHeader, loadCredentials, saveCredentia
 describe('auth', () => {
   beforeEach(async () => {
     indexedDB.deleteDatabase('tasker-db');
+    await clearCredentials().catch(() => undefined);
   });
 
   it('creates a basic auth header', () => {
