@@ -105,19 +105,62 @@ npm run test:integration
 
 ### End-to-End Tests (Playwright)
 
-Located in `web/e2e/`.
+Located in `web/e2e/`. This policy follows the same approach used by the sibling [anicolao/food](https://github.com/anicolao/food) and [anicolao/jaipur](https://github.com/anicolao/jaipur) projects: numbered scenario directories, a shared step helper, committed baseline screenshots, and zero-pixel-tolerance visual regression.
 
 Playwright launches a real Chromium browser, navigates to the Vite dev server, and interacts with the app as a user would. A lightweight mock CalDAV HTTP server (Node.js + `http`) is started alongside the browser to serve pre-canned responses.
 
+**Scenario structure:**
+
+Each user story gets its own numbered directory:
+
+```
+web/e2e/
+├── helpers/
+│   └── test-step-helper.ts   # Shared TestStepHelper utility
+├── 001-auth/
+│   ├── 001-auth.spec.ts      # Scenario test file
+│   ├── README.md             # Auto-generated verification doc
+│   └── screenshots/          # Committed baseline images
+```
+
+**The `TestStepHelper`:**
+
+Tests are written as a sequence of named steps via `tester.step(id, options)`. Each step:
+
+1. Runs its verifications (Playwright assertions) first.
+2. Captures a screenshot and compares it against the committed baseline in `screenshots/` with zero pixel tolerance (`maxDiffPixels: 0`).
+3. Records the step's description and verifications for `README.md` generation.
+
+Calling `tester.generateDocs()` at the end of a test (re)writes the scenario's `README.md` so documentation and screenshots can never drift out of sync with the test that produced them.
+
+```typescript
+import { TestStepHelper } from '../helpers/test-step-helper';
+
+test('US-001: User enters credentials and loads tasks', async ({ page }, testInfo) => {
+  const tester = new TestStepHelper(page, testInfo);
+  tester.setMetadata('Authentication', 'As a user, I want to connect and load my tasks.');
+
+  await page.goto('/');
+  await tester.step('initial-load', {
+    description: 'User sees the connection form',
+    verifications: [
+      { spec: 'Connect button visible', check: async () => await expect(page.getByRole('button', { name: 'Connect' })).toBeVisible() },
+    ],
+  });
+
+  tester.generateDocs();
+});
+```
+
+**Determinism:**
+
+`web/playwright.config.ts` launches Chromium with software rendering (`--disable-gpu`, `--use-gl=swiftshader`), disabled font hinting/subpixel rendering, a fixed viewport, `deviceScaleFactor: 1`, and a fixed locale/timezone so screenshots are pixel-identical between CI and local runs.
+
 **Test suites:**
 
-| Suite | File | Scenarios |
+| Suite | Directory | Scenarios |
 |---|---|---|
-| Authentication | `e2e/auth.spec.ts` | Enter credentials → tasks load; wrong password → error shown |
-| Task list | `e2e/task-list.spec.ts` | Tasks displayed; sorted by aisle; completed tasks show strikethrough |
-| Task CRUD | `e2e/task-crud.spec.ts` | Add task → appears in list; edit task → summary updated; delete task → removed from list |
-| Offline mode | `e2e/offline.spec.ts` | Go offline → cached tasks visible; add task offline → synced when back online |
-| Settings | `e2e/settings.spec.ts` | Change Nextcloud URL → app reconnects |
+| Authentication | `e2e/001-auth/` | Enter credentials → tasks load |
 
 **Running E2E tests:**
 
@@ -126,6 +169,15 @@ cd web
 npx playwright install --with-deps chromium
 npm run test:e2e
 ```
+
+**Updating baseline screenshots** (after an intentional UI change):
+
+```bash
+cd web
+npm run test:e2e -- --update-snapshots
+```
+
+Then review and commit the updated PNGs under the scenario's `screenshots/` directory.
 
 ---
 
@@ -180,27 +232,23 @@ on:
   pull_request:
 
 jobs:
-  pwa-unit:
-    name: PWA Unit & Integration Tests
+  web-test:
+    name: Web Unit & E2E Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
-      - run: cd pwa && npm ci
-      - run: cd pwa && npm test
-      - run: cd pwa && npm run test:integration
-
-  pwa-e2e:
-    name: PWA E2E Tests (Playwright)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 20 }
-      - run: cd pwa && npm ci
+      - run: npm ci
+        working-directory: web
+      - run: npm test
+        working-directory: web
+      - run: npm run test:integration
+        working-directory: web
       - run: npx playwright install --with-deps chromium
-      - run: cd pwa && npm run test:e2e
+        working-directory: web
+      - run: npm run test:e2e
+        working-directory: web
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -208,30 +256,18 @@ jobs:
           path: web/playwright-report/
           retention-days: 30
 
-  fitbit-unit:
-    name: Fitbit Unit Tests
+  web-build:
+    name: Web Production Build
     runs-on: ubuntu-latest
+    needs: [web-test]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
-      - run: cd fitbit && npm ci
-      - run: cd fitbit && npm test
-
-  build:
-    name: PWA Production Build
-    runs-on: ubuntu-latest
-    needs: [pwa-unit, pwa-e2e]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 20 }
-      - run: cd pwa && npm ci
-      - run: cd pwa && npm run build
-      - uses: actions/upload-artifact@v4
-        with:
-          name: pwa-dist
-          path: web/dist/
+      - run: npm ci
+        working-directory: web
+      - run: npm run build
+        working-directory: web
 ```
 
 ### PR Check Summary
@@ -240,37 +276,31 @@ Every pull request must pass the following checks before merging:
 
 | Check | Required | Description |
 |---|---|---|
-| `PWA Unit & Integration Tests` | ✅ | Vitest unit + integration suite |
-| `PWA E2E Tests (Playwright)` | ✅ | Playwright browser automation |
-| `Fitbit Unit Tests` | ✅ | Jest suite for shared Fitbit modules |
-| `PWA Production Build` | ✅ | Ensures the Vite build compiles without errors |
+| `Web Unit & E2E Tests` | ✅ | Vitest unit + integration suite, plus Playwright browser automation |
+| `Web Production Build` | ✅ | Ensures the Vite build compiles without errors |
 
 ---
 
 ## Visual / Screenshot Testing
 
-Playwright captures full-page screenshots at the end of each E2E test. Screenshots are uploaded as CI artifacts and compared against baseline images using [pixelmatch](https://github.com/mapbox/pixelmatch) to detect unintended visual regressions.
+We follow a **zero-pixel tolerance** policy for visual regression, matching the sibling `food` and `jaipur` projects: every scenario step captures a screenshot via `TestStepHelper.step()`, and any deviation from the committed baseline fails the test (`maxDiffPixels: 0`).
 
 **Baseline management:**
 
-- Baseline screenshots live in `web/e2e/screenshots/baseline/`.
+- Baseline screenshots are committed alongside their scenario, e.g. `web/e2e/001-auth/screenshots/000-initial-load.png`.
 - To update baselines (e.g., after an intentional UI change), run:
   ```bash
-  cd pwa && npm run test:e2e -- --update-snapshots
+  cd web && npm run test:e2e -- --update-snapshots
   ```
-  then commit the updated baseline files.
+  then review and commit the updated baseline files.
 
 **Screenshot artifact example (PR comment):**
 
-When the `pwa-e2e` job runs on a PR, the workflow uploads the Playwright HTML report as a CI artifact. The report includes:
+When the `web-test` job runs on a PR, the workflow uploads the Playwright HTML report as a CI artifact. The report includes:
 
 - A pass/fail summary for each test.
 - Inline screenshots for failed assertions (actual vs. expected diff highlighted in red).
 - A trace viewer link for step-by-step replay of failed tests.
-
-![Playwright report example showing task list screenshot](../docs/assets/playwright-report-example.png)
-
-*(The `docs/assets/` folder contains representative screenshots added during initial development.)*
 
 ---
 

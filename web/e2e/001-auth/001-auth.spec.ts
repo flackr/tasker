@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import http from 'node:http';
+import { TestStepHelper } from '../helpers/test-step-helper';
 
 function createServer() {
   return http.createServer((req, res) => {
@@ -26,20 +27,41 @@ function createServer() {
   });
 }
 
-test('enter credentials loads tasks', async ({ page }) => {
+test('US-001: User enters credentials and loads tasks', async ({ page }, testInfo) => {
+  const tester = new TestStepHelper(page, testInfo);
+  tester.setMetadata('Authentication', 'As a user, I want to connect to my Nextcloud server and load my tasks.');
+
   const server = createServer();
   await new Promise<void>((resolve) => server.listen(8787, resolve));
 
   try {
     await page.goto('/');
+
+    await tester.step('initial-load', {
+      description: 'User sees the connection form',
+      verifications: [
+        { spec: 'Nextcloud URL field visible', check: async () => await expect(page.getByLabel('Nextcloud URL')).toBeVisible() },
+        { spec: 'Connect button visible', check: async () => await expect(page.getByRole('button', { name: 'Connect' })).toBeVisible() },
+      ],
+    });
+
     await page.getByLabel('Nextcloud URL').fill('http://127.0.0.1:8787');
     await page.getByLabel('Username').fill('alice');
     await page.getByLabel('App password').fill('secret');
     await page.getByRole('button', { name: 'Connect' }).click();
 
     await expect(page.getByTestId('status')).toContainText('Loaded 1 tasks');
-    await expect(page.getByTestId('task-list')).toContainText('Milk');
+
+    await tester.step('tasks-loaded', {
+      description: 'Tasks load after connecting',
+      verifications: [
+        { spec: 'Status shows loaded task count', check: async () => await expect(page.getByTestId('status')).toContainText('Loaded 1 tasks') },
+        { spec: 'Task list shows the fetched task', check: async () => await expect(page.getByTestId('task-list')).toContainText('Milk') },
+      ],
+    });
+
+    tester.generateDocs();
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((err) => err ? reject(err) : resolve()));
+    await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
   }
 });
