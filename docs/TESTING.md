@@ -45,7 +45,7 @@ tasker follows a **test pyramid** approach:
 
 ### Unit Tests (Vitest)
 
-Located in `pwa/src/**/*.test.ts`.
+Located in `web/src/**/*.test.ts`.
 
 **What is tested:**
 
@@ -60,7 +60,7 @@ Located in `pwa/src/**/*.test.ts`.
 **Running unit tests:**
 
 ```bash
-cd pwa
+cd web
 npm test           # run once
 npm run test:watch # watch mode
 ```
@@ -85,7 +85,7 @@ describe('parseVTodo', () => {
 
 ### Integration Tests (Vitest + MSW)
 
-Located in `pwa/src/**/*.integration.test.ts`.
+Located in `web/src/**/*.integration.test.ts`.
 
 [Mock Service Worker (MSW)](https://mswjs.io/) intercepts `fetch` calls inside the test environment and returns canned CalDAV XML responses, allowing the full CalDAV client and sync engine to be exercised without a real Nextcloud instance.
 
@@ -99,13 +99,13 @@ Located in `pwa/src/**/*.integration.test.ts`.
 **Running integration tests:**
 
 ```bash
-cd pwa
+cd web
 npm run test:integration
 ```
 
 ### End-to-End Tests (Playwright)
 
-Located in `pwa/e2e/`.
+Located in `web/e2e/`.
 
 Playwright launches a real Chromium browser, navigates to the Vite dev server, and interacts with the app as a user would. A lightweight mock CalDAV HTTP server (Node.js + `http`) is started alongside the browser to serve pre-canned responses.
 
@@ -122,7 +122,7 @@ Playwright launches a real Chromium browser, navigates to the Vite dev server, a
 **Running E2E tests:**
 
 ```bash
-cd pwa
+cd web
 npx playwright install --with-deps chromium
 npm run test:e2e
 ```
@@ -205,7 +205,7 @@ jobs:
         if: always()
         with:
           name: playwright-report
-          path: pwa/playwright-report/
+          path: web/playwright-report/
           retention-days: 30
 
   fitbit-unit:
@@ -231,7 +231,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: pwa-dist
-          path: pwa/dist/
+          path: web/dist/
 ```
 
 ### PR Check Summary
@@ -253,7 +253,7 @@ Playwright captures full-page screenshots at the end of each E2E test. Screensho
 
 **Baseline management:**
 
-- Baseline screenshots live in `pwa/e2e/screenshots/baseline/`.
+- Baseline screenshots live in `web/e2e/screenshots/baseline/`.
 - To update baselines (e.g., after an intentional UI change), run:
   ```bash
   cd pwa && npm run test:e2e -- --update-snapshots
@@ -276,7 +276,7 @@ When the `pwa-e2e` job runs on a PR, the workflow uploads the Playwright HTML re
 
 ## CalDAV Mock Server
 
-For E2E and integration tests, a minimal CalDAV mock server (`pwa/test-utils/mock-caldav-server.ts`) is used instead of a real Nextcloud instance. It:
+For E2E and integration tests, a minimal CalDAV mock server (`web/test-utils/mock-caldav-server.ts`) is used instead of a real Nextcloud instance. It:
 
 - Responds to `PROPFIND` requests with a configurable list of calendars and CTags.
 - Responds to `REPORT` (calendar-query) with a configurable set of VTODO resources.
@@ -305,7 +305,7 @@ Coverage is reported by Vitest and uploaded to the CI summary. PRs that drop bel
 **Generate a local coverage report:**
 
 ```bash
-cd pwa
+cd web
 npm run test:coverage
-# Report written to pwa/coverage/index.html
+# Report written to web/coverage/index.html
 ```

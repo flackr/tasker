@@ -18,11 +18,11 @@ This document tracks all planned work towards building the complete tasker ecosy
 
 ## Milestone 1 — PWA Scaffold
 
-- [ ] Initialise Vite + TypeScript project under `pwa/`
+- [ ] Initialise Vite + TypeScript project under `web/`
 - [ ] Configure Vite PWA plugin (`vite-plugin-pwa`) for Service Worker generation
 - [ ] Set up Vitest for unit and integration tests
 - [ ] Set up Playwright for E2E tests
-- [ ] Create `pwa/src/main.ts` entry point
+- [ ] Create `web/src/main.ts` entry point
 - [ ] Create bare-bones `index.html` with app shell
 - [ ] Add CSS custom properties design tokens (colours, spacing, typography)
 - [ ] Implement responsive layout (mobile-first, works on 375px viewport)
@@ -34,10 +34,10 @@ This document tracks all planned work towards building the complete tasker ecosy
 
 ## Milestone 2 — Authentication
 
-- [ ] Design and implement Settings screen (Nextcloud URL, username, app password)
+- [ ] Design and implement Settings screen (Nextcloud URL, username, app password, tasker config JSON path)
 - [ ] Implement `auth.ts`: Basic Auth header generation
-- [ ] Encrypt stored credentials using Web Crypto API (PBKDF2 → AES-GCM)
-- [ ] Store encrypted credentials in IndexedDB
+- [ ] Store credentials in IndexedDB; persist across sessions (no PIN required on reload)
+- [ ] On first launch: read `tasker-config.json` from user-provided WebDAV path to bootstrap preferences
 - [ ] Show "connected" / "connection failed" status on Settings screen
 - [ ] Implement logout (clear credentials + cached data)
 - [ ] Write unit tests for `auth.ts`
@@ -134,13 +134,12 @@ This document tracks all planned work towards building the complete tasker ecosy
 
 ## Milestone 8 — Recipe / Meal Planning
 
-- [ ] Design recipe JSON schema (`docs/DESIGN.md` § Recipe)
-- [ ] Implement WebDAV client for recipe files (`webdav/client.ts`):
-  - [ ] `listRecipes()` — PROPFIND `tasker/recipes/`
-  - [ ] `getRecipe(slug)` — GET recipe JSON file
-  - [ ] `putRecipe(recipe)` — PUT recipe JSON file
-  - [ ] `deleteRecipe(slug)` — DELETE recipe JSON file
-- [ ] Implement recipe editor UI
+- [ ] Document Markdown recipe format in `docs/DESIGN.md` § Recipe
+- [ ] Implement WebDAV client for recipe files (`webdav/client.ts`) — **read-only**:
+  - [ ] `listRecipes()` — PROPFIND configured recipes folder path
+  - [ ] `getRecipe(slug)` — GET recipe Markdown file
+- [ ] Implement Markdown ingredient parser (parse `## Ingredients` section → items + aisle tags)
+- [ ] Implement recipe list UI (read-only; links to Nextcloud for editing)
 - [ ] Implement "Add to grocery list" action: convert recipe ingredients to VTODOs
 - [ ] Implement meal planner calendar view (weekly grid)
 - [ ] Store meal plan entries as WebDAV JSON files

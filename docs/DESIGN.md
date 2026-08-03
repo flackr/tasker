@@ -24,7 +24,7 @@
 6. [Data Model](#data-model)
    - [Task (VTODO)](#task-vtodo)
    - [Aisle / Category](#aisle--category)
-   - [Recipe (JSON over WebDAV)](#recipe-json-over-webdav)
+   - [Recipe (Markdown over WebDAV)](#recipe-markdown-over-webdav)
 7. [Sync Protocol](#sync-protocol)
 8. [Security Considerations](#security-considerations)
 
@@ -49,7 +49,7 @@
 │               Nextcloud Instance             │
 │  ┌──────────────┐   ┌──────────────────────┐ │
 │  │  CalDAV       │   │  WebDAV              │ │
-│  │  (VTODO tasks)│   │  (JSON recipe files) │ │
+│  │  (VTODO tasks)│   │  (Markdown recipe files) │ │
 │  └──────────────┘   └──────────────────────┘ │
 └───────────────────────────┬─────────────────┘
                             │ HTTPS + Basic Auth
@@ -103,19 +103,26 @@ Each grocery list is a separate CalDAV **calendar** collection. Within a collect
 
 ### WebDAV Recipe Storage
 
-Recipes (what to cook for the week) are stored as raw JSON files under a dedicated WebDAV folder:
+Recipes (what to cook for the week) are stored as Markdown (`.md`) files under a user-configured WebDAV folder. The folder path is provided by the user during the initial authentication / settings step (stored as part of the tasker config JSON, see [Authentication](#authentication)). This allows the user to choose any location in their Nextcloud Files hierarchy.
 
+Example path (user-configurable):
 ```
-https://<nextcloud-domain>/remote.php/dav/files/<username>/tasker/recipes/
+https://<nextcloud-domain>/remote.php/dav/files/<username>/<configured-path>/recipes/
 ```
 
-Each recipe is a file named `<recipe-slug>.json`. The PWA reads and writes these files using standard WebDAV `GET` / `PUT` / `DELETE` operations.
+Each recipe is a Markdown file named `<recipe-slug>.md`. Recipes are authored and edited directly in Nextcloud (e.g., using the Nextcloud Text app or any WebDAV client). The PWA only **reads** recipe files — it does not create or modify them. When the user wants to add a recipe's ingredients to the grocery list, the PWA fetches the Markdown file, parses the ingredient list, and converts each item into a VTODO task.
 
 ### Authentication
 
 Authentication uses **HTTP Basic Auth** with a Nextcloud **App Password** (not the user's main password). App Passwords can be revoked individually and are scoped to a single application.
 
-Credentials are stored client-side using the browser's `localStorage` or an encrypted IndexedDB entry, never transmitted to any server other than the user's own Nextcloud.
+During the initial setup flow the user provides:
+- Nextcloud URL
+- Username
+- App Password
+- **Tasker config JSON path** — the WebDAV path to a `tasker-config.json` file in their Nextcloud Files, e.g. `Notes/tasker-config.json`. This file stores user preferences such as the recipes folder path, aisle order, and calendar IDs. Storing the config path at auth time means new devices (PWA, Fitbit Companion) can discover all other settings by reading a single known file on Nextcloud.
+
+Credentials are stored client-side in IndexedDB and persist across sessions — the user does not need to re-enter them on every load. They are never transmitted to any server other than the user's own Nextcloud.
 
 ### CORS Configuration
 
@@ -151,7 +158,7 @@ Access-Control-Allow-Credentials: true
 ### PWA Application Structure
 
 ```
-pwa/
+web/
 ├── index.html
 ├── src/
 │   ├── main.ts              # Entry point; bootstraps app
@@ -215,7 +222,7 @@ Browser tab
 | `calendars` | `id` (string) | — | Calendar collections + CTag |
 | `sync-queue` | auto-increment | `status` | Pending create/update/delete operations |
 | `credentials` | `"default"` | — | Encrypted Nextcloud credentials |
-| `recipes` | `slug` (string) | — | Cached recipe JSON |
+| `recipes` | `slug` (string) | — | Cached recipe Markdown content |
 
 ### Service Worker and Background Sync
 
@@ -366,22 +373,27 @@ interface Task {
 
 CalDAV `CATEGORIES` values are used as aisle labels. The app maintains a local ordered list of aisle names (stored in IndexedDB) that controls the sort order of items in the grocery view. Users can add, rename, and reorder aisles from the Settings screen.
 
-### Recipe (JSON over WebDAV)
+### Recipe (Markdown over WebDAV)
 
-```json
-{
-  "slug": "pasta-bolognese",
-  "title": "Pasta Bolognese",
-  "servings": 4,
-  "ingredients": [
-    { "item": "Ground beef", "quantity": "500g", "aisle": "Meat" },
-    { "item": "Pasta", "quantity": "400g", "aisle": "Pasta & Rice" }
-  ],
-  "instructions": "..."
-}
+Recipes are authored and maintained directly in Nextcloud as Markdown files. The PWA only reads them. A recipe file follows this convention:
+
+```markdown
+# Pasta Bolognese
+
+Servings: 4
+
+## Ingredients
+
+- 500g Ground beef (Meat)
+- 400g Pasta (Pasta & Rice)
+- 1 can Crushed tomatoes (Canned Goods)
+
+## Instructions
+
+Brown the beef, add tomatoes, simmer for 20 minutes, serve over pasta.
 ```
 
-When a recipe is added to the weekly meal plan, its ingredients are automatically converted to tasks (VTODOs) in the grocery list calendar.
+The PWA parses the `## Ingredients` section to extract items and their aisle tags (parenthesised text). When a recipe is added to the weekly meal plan, its ingredients are automatically converted to tasks (VTODOs) in the grocery list calendar.
 
 ---
 
@@ -446,7 +458,7 @@ User checks off item
 
 | Concern | Mitigation |
 |---|---|
-| Credential storage | App Passwords stored in IndexedDB, encrypted with a key derived from a user-provided PIN via Web Crypto API (PBKDF2 → AES-GCM). |
+| Credential storage | App Passwords stored in IndexedDB and persisted across sessions; no PIN is required on load. Credentials are never sent to any server other than the user's own Nextcloud. |
 | Transport security | All traffic to Nextcloud over HTTPS (TLS 1.2+). Self-signed certificates are rejected by default. |
 | CORS | Only origins explicitly whitelisted in WebAppPassword can make credentialed requests. |
 | App Password scope | Users should create a dedicated App Password for tasker so it can be revoked without affecting other integrations. |
