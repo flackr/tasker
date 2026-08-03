@@ -21,7 +21,8 @@ export async function fetchTasks(credentials: Credentials): Promise<Task[]> {
   const calendarPath = extractFirstCalendarPath(calendarXml);
   if (!calendarPath) throw new Error('No task list found');
 
-  const reportResponse = await fetch(new URL(calendarPath, credentials.baseUrl).toString(), {
+  const reportUrl = calendarPath.startsWith('http') ? calendarPath : `${credentials.baseUrl.replace(/\/$/, '')}${calendarPath}`;
+  const reportResponse = await fetch(reportUrl, {
     method: 'REPORT',
     headers: { ...headers, Depth: '1' },
     body: `<?xml version="1.0"?><c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><d:getetag /><c:calendar-data /></d:prop><c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VTODO" /></c:comp-filter></c:filter></c:calendar-query>`,

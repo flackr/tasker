@@ -3,6 +3,14 @@ import http from 'node:http';
 
 function createServer() {
   return http.createServer((req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', 'http://127.0.0.1:4173');
+    res.setHeader('Access-Control-Allow-Methods', 'PROPFIND, REPORT, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'authorization, content-type, depth');
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
     if (req.method === 'PROPFIND') {
       res.writeHead(207, { 'Content-Type': 'application/xml' });
       res.end(`<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"><d:response><d:href>/remote.php/dav/calendars/alice/tasks/</d:href></d:response></d:multistatus>`);
