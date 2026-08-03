@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "deploy": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run src/client.integration.test.ts",
