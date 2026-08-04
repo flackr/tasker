@@ -105,7 +105,7 @@ npm run test:integration
 
 ### End-to-End Tests (Playwright)
 
-Located in `web/e2e/`. This policy follows the same approach used by the sibling [anicolao/food](https://github.com/anicolao/food) and [anicolao/jaipur](https://github.com/anicolao/jaipur) projects: numbered scenario directories, a shared step helper, committed baseline screenshots, and zero-pixel-tolerance visual regression.
+Located in `web/e2e/`. Scenarios live in numbered directories, driven by a shared step helper, with committed baseline screenshots and zero-pixel-tolerance visual regression.
 
 Playwright launches a real Chromium browser, navigates to the Vite dev server, and interacts with the app as a user would. A lightweight mock CalDAV HTTP server (Node.js + `http`) is started alongside the browser to serve pre-canned responses.
 
@@ -283,7 +283,7 @@ Every pull request must pass the following checks before merging:
 
 ## Visual / Screenshot Testing
 
-We follow a **zero-pixel tolerance** policy for visual regression, matching the sibling `food` and `jaipur` projects: every scenario step captures a screenshot via `TestStepHelper.step()`, and any deviation from the committed baseline fails the test (`maxDiffPixels: 0`).
+We follow a **zero-pixel tolerance** policy for visual regression: every scenario step captures a screenshot via `TestStepHelper.step()`, and any deviation from the committed baseline fails the test (`maxDiffPixels: 0`).
 
 **Baseline management:**
 
