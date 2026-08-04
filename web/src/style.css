@@ -29,6 +29,9 @@ button, input { font: inherit; }
 
 .auth-form { display: grid; gap: 0.75rem; }
 .auth-form label { display: grid; gap: 0.35rem; }
+.calendar-form { display: grid; gap: 0.75rem; margin-top: 1rem; }
+.calendar-form label { display: grid; gap: 0.35rem; }
+select { width: 100%; padding: 0.65rem 0.75rem; border: 1px solid #d1d5db; border-radius: 8px; }
 .actions { display: flex; gap: 0.75rem; }
 input { width: 100%; padding: 0.65rem 0.75rem; border: 1px solid #d1d5db; border-radius: 8px; }
 button { padding: 0.65rem 0.9rem; border: 0; border-radius: 8px; background: #2563eb; color: #fff; cursor: pointer; }
