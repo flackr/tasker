@@ -1,7 +1,7 @@
 import './style.css';
 import { clearCredentials, loadCredentials, saveCredentials } from './auth';
-import { fetchTasks } from './caldav/client';
-import type { Credentials, Task } from './types';
+import { fetchTasks, listTaskCalendars } from './caldav/client';
+import type { CalendarInfo, Credentials, Task } from './types';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('App root not found');
@@ -16,7 +16,12 @@ async function bootstrap() {
   }
 }
 
-function render(initial?: Credentials, tasks: Task[] = [], status = 'Enter your Nextcloud credentials to load tasks.') {
+function render(
+  initial?: Credentials,
+  tasks: Task[] = [],
+  status = 'Enter your Nextcloud credentials to load tasks.',
+  calendars: CalendarInfo[] = [],
+) {
   app!.innerHTML = `
     <main class="layout">
       <section class="panel">
@@ -40,6 +45,7 @@ function render(initial?: Credentials, tasks: Task[] = [], status = 'Enter your 
             <button type="button" id="logout">Clear</button>
           </div>
         </form>
+        ${calendars.length ? renderCalendarPicker(calendars, initial?.calendarHref) : ''}
       </section>
       <section class="panel">
         <h2>Task list</h2>
@@ -54,13 +60,13 @@ function render(initial?: Credentials, tasks: Task[] = [], status = 'Enter your 
   form?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const formData = new FormData(form);
-    const credentials = {
+    const credentials: Credentials = {
       baseUrl: String(formData.get('baseUrl') ?? ''),
       username: String(formData.get('username') ?? ''),
       appPassword: String(formData.get('appPassword') ?? ''),
     };
     await saveCredentials(credentials);
-    render(credentials, tasks, 'Connecting…');
+    render(credentials, [], 'Connecting…');
     await connect(credentials);
   });
 
@@ -68,15 +74,69 @@ function render(initial?: Credentials, tasks: Task[] = [], status = 'Enter your 
     await clearCredentials();
     render(undefined, [], 'Credentials cleared.');
   });
+
+  document.querySelector<HTMLFormElement>('#calendar-form')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!initial) return;
+    const formData = new FormData(event.currentTarget as HTMLFormElement);
+    const calendarHref = String(formData.get('calendarHref') ?? '');
+    if (!calendarHref) return;
+    const credentials = { ...initial, calendarHref };
+    await saveCredentials(credentials);
+    render(credentials, [], 'Loading tasks…', calendars);
+    await loadTasks(credentials, calendars);
+  });
+}
+
+function renderCalendarPicker(calendars: CalendarInfo[], selectedHref?: string): string {
+  const options = calendars
+    .map(
+      (calendar) =>
+        `<option value="${escapeAttr(calendar.href)}" ${calendar.href === selectedHref ? 'selected' : ''}>${escapeHtml(calendar.displayName)}</option>`,
+    )
+    .join('');
+  return `
+    <form id="calendar-form" class="calendar-form">
+      <label>
+        <span>Task list</span>
+        <select name="calendarHref" data-testid="calendar-select">${options}</select>
+      </label>
+      <button type="submit">Load tasks</button>
+    </form>
+  `;
 }
 
 async function connect(credentials: Credentials) {
   try {
-    const tasks = await fetchTasks(credentials);
-    render(credentials, tasks, `Connected to ${credentials.username}. Loaded ${tasks.length} tasks.`);
+    const calendars = await listTaskCalendars(credentials);
+    if (!calendars.length) {
+      render(credentials, [], 'No task lists found.');
+      return;
+    }
+
+    const selectedHref = credentials.calendarHref && calendars.some((c) => c.href === credentials.calendarHref)
+      ? credentials.calendarHref
+      : calendars[0].href;
+
+    if (credentials.calendarHref === selectedHref) {
+      render(credentials, [], 'Loading tasks…', calendars);
+      await loadTasks(credentials, calendars);
+    } else {
+      render(credentials, [], 'Select a task list to load.', calendars);
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to connect';
     render(credentials, [], message);
+  }
+}
+
+async function loadTasks(credentials: Credentials, calendars: CalendarInfo[]) {
+  try {
+    const tasks = await fetchTasks(credentials, credentials.calendarHref!);
+    render(credentials, tasks, `Connected to ${credentials.username}. Loaded ${tasks.length} tasks.`, calendars);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to connect';
+    render(credentials, [], message, calendars);
   }
 }
 
