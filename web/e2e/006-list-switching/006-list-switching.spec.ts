@@ -184,6 +184,16 @@ test('US-006: Compact mobile header, side drawer list switching, + add-task dial
       ],
     });
 
+    // Simulate another device reordering Hardware categories on Nextcloud → tapping Sync pulls new order!
+    const remoteCfg = JSON.parse(server.backend.getFile('Notes/tasker-config.json')!);
+    remoteCfg.categoriesByCalendar[hardwareHref] = ['Fasteners', 'Electrical', 'Lumber'];
+    server.backend.setFile('Notes/tasker-config.json', JSON.stringify(remoteCfg), 'application/json');
+
+    await page.getByTestId('menu-toggle-btn').click();
+    await page.getByTestId('list-option-Hardware').click();
+    await page.getByTestId('sync-now').click();
+    await expect(page.locator('.category-heading')).toHaveText(['Fasteners', 'Electrical']);
+
     tester.generateDocs();
   } finally {
     await server.close();

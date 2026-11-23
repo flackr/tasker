@@ -78,17 +78,42 @@ export interface SyncOperation {
   queuedAt: string;
 }
 
+export function normalizeCalendarHref(href: string): string {
+  let s = href.trim();
+  const urlMatch = /^https?:\/\/[^/]+(\/.*)?$/i.exec(s);
+  if (urlMatch) {
+    s = urlMatch[1] || '/';
+  }
+  try {
+    s = decodeURIComponent(s);
+  } catch {
+    // Keep as-is if malformed
+  }
+  if (s.charAt(0) !== '/') s = '/' + s;
+  if (s.charAt(s.length - 1) !== '/') s = s + '/';
+  return s;
+}
+
 export function resolveConfiguredCategories(
   config?: TaskerConfig,
   calendarHref?: string,
 ): string[] | undefined {
   if (!config) return undefined;
-  if (
-    calendarHref &&
-    config.categoriesByCalendar &&
-    Array.isArray(config.categoriesByCalendar[calendarHref])
-  ) {
-    return config.categoriesByCalendar[calendarHref].slice();
+  if (calendarHref && config.categoriesByCalendar) {
+    if (Array.isArray(config.categoriesByCalendar[calendarHref])) {
+      return config.categoriesByCalendar[calendarHref].slice();
+    }
+    const targetNorm = normalizeCalendarHref(calendarHref);
+    const keys = Object.keys(config.categoriesByCalendar);
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      if (
+        Array.isArray(config.categoriesByCalendar[key]) &&
+        normalizeCalendarHref(key) === targetNorm
+      ) {
+        return config.categoriesByCalendar[key].slice();
+      }
+    }
   }
   if (Array.isArray(config.categories)) return config.categories.slice();
   if (Array.isArray(config.aisles)) return config.aisles.slice();

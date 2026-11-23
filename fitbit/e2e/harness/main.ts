@@ -246,22 +246,39 @@ function createBrowserFitbitDocument(
       },
     };
 
-    const checkbox = {
+    const title = {
+      style: {
+        get fill() {
+          return summaryEl.style.color;
+        },
+        set fill(val: string) {
+          summaryEl.style.color = val;
+        },
+      },
       get text() {
         return summaryEl.textContent ?? '';
       },
       set text(val: string) {
         summaryEl.textContent = val;
       },
-      get value() {
-        return row.dataset.checked === '1' ? 1 : 0;
+    };
+
+    const checkboxCheck = {
+      style: {
+        get display() {
+          return row.dataset.checked === '1' ? 'inline' : 'none';
+        },
+        set display(val: string) {
+          const checked = val !== 'none';
+          row.dataset.checked = checked ? '1' : '0';
+          boxEl.innerHTML = checked
+            ? '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.5L6.5 12L13 4.5" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+            : '';
+        },
       },
-      set value(v: number) {
-        row.dataset.checked = v ? '1' : '0';
-        boxEl.innerHTML = v
-          ? '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.5L6.5 12L13 4.5" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>'
-          : '';
-      },
+    };
+
+    const touch = {
       get onclick() {
         return clickHandler;
       },
@@ -282,7 +299,9 @@ function createBrowserFitbitDocument(
     return {
       getElementById(subId: string) {
         if (subId === 'task-tile-list') return tileList;
-        if (subId === 'task-checkbox') return checkbox;
+        if (subId === 'task-touch') return touch;
+        if (subId === 'task-title') return title;
+        if (subId === 'checkbox-check') return checkboxCheck;
         if (subId === 'item-category') return category;
         return null;
       },

@@ -1,12 +1,13 @@
-import type {
-  CalendarInfo,
-  CalendarMetadataStore,
-  SyncOperation,
-  SyncQueueStore,
-  SyncStorage,
-  Task,
-  TaskerConfig,
-  TaskStore,
+import {
+  normalizeCalendarHref,
+  type CalendarInfo,
+  type CalendarMetadataStore,
+  type SyncOperation,
+  type SyncQueueStore,
+  type SyncStorage,
+  type Task,
+  type TaskerConfig,
+  type TaskStore,
 } from '@tasker/core';
 import { getTaskerDb } from './index';
 
@@ -118,16 +119,35 @@ export async function saveCategoriesByCalendar(map: Record<string, string[]>): P
   await db.put('settings', clean, CATEGORIES_BY_CALENDAR_KEY);
 }
 
+function findCategoriesForCalendar(
+  map: Record<string, string[]> | undefined,
+  calendarHref: string,
+): string[] | undefined {
+  if (!map) return undefined;
+  if (Array.isArray(map[calendarHref])) {
+    return map[calendarHref].slice();
+  }
+  const target = normalizeCalendarHref(calendarHref);
+  for (const [key, list] of Object.entries(map)) {
+    if (Array.isArray(list) && normalizeCalendarHref(key) === target) {
+      return list.slice();
+    }
+  }
+  return undefined;
+}
+
 export async function loadCategoryOrder(calendarHref?: string): Promise<string[]> {
   const db = await getTaskerDb();
   if (calendarHref) {
     const perCalendar = await loadCategoriesByCalendar();
-    if (Array.isArray(perCalendar[calendarHref])) {
-      return perCalendar[calendarHref].slice();
+    const localMatch = findCategoriesForCalendar(perCalendar, calendarHref);
+    if (localMatch) {
+      return localMatch;
     }
     const config = await loadTaskerConfig();
-    if (config?.categoriesByCalendar && Array.isArray(config.categoriesByCalendar[calendarHref])) {
-      return config.categoriesByCalendar[calendarHref].slice();
+    const configMatch = findCategoriesForCalendar(config?.categoriesByCalendar, calendarHref);
+    if (configMatch) {
+      return configMatch;
     }
   }
   const stored = await db.get('settings', CATEGORIES_KEY);

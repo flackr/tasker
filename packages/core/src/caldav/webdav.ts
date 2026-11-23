@@ -73,6 +73,7 @@ export class WebDavClient {
     const response = await this.fetchImpl(this.fileUrl(relativePath), {
       method: 'GET',
       headers: this.authHeaders(),
+      cache: 'no-store',
     });
     if (!response.ok) {
       throwForHttpStatus(response.status, `getTextFile(${relativePath})`);

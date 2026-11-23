@@ -75,6 +75,7 @@ const storage = new IndexedDbSyncStorage();
 let syncEngine: SyncEngine | null = null;
 let syncInFlight = false;
 let autoCategorizeAbort: AbortController | null = null;
+let categoryWriteChain: Promise<void> = Promise.resolve();
 const attemptedAutoCategorizeUids = new Set<string>();
 
 const state: AppState = {
@@ -298,6 +299,11 @@ async function runSync(options: { force?: boolean } = {}): Promise<void> {
   render();
 
   try {
+    // Wait for any in-flight local category write before pulling remote config
+    await categoryWriteChain;
+    if (state.credentials.configPath) {
+      await fetchRemoteConfig(state.credentials);
+    }
     const result = await syncEngine.fullSync(state.credentials.calendarHref, {
       force: options.force,
       conflictStrategy: 'manual',
@@ -412,30 +418,44 @@ async function maybeAutoCategorize(manualTrigger: boolean): Promise<void> {
 
 async function persistCategories(categories: string[]): Promise<void> {
   const calendarHref = state.credentials?.calendarHref;
-  state.categoryOrder = categories;
+  const credentials = state.credentials;
+  const snapshot = categories.slice();
+  state.categoryOrder = snapshot;
   attemptedAutoCategorizeUids.clear();
   render();
-  await saveCategoryOrder(categories, calendarHref);
+  await saveCategoryOrder(snapshot, calendarHref);
 
-  if (state.credentials?.configPath && navigator.onLine) {
-    try {
-      const existing = (await loadTaskerConfig()) ?? {};
-      const nextConfig = calendarHref
-        ? {
-            ...existing,
-            categoriesByCalendar: {
-              ...(existing.categoriesByCalendar ?? {}),
-              [calendarHref]: categories.slice(),
-            },
+  if (credentials?.configPath && navigator.onLine) {
+    const configPath = credentials.configPath;
+    categoryWriteChain = categoryWriteChain.then(async () => {
+      try {
+        const webdav = createWebDavClient(credentials);
+        let baseConfig = (await loadTaskerConfig()) ?? {};
+        try {
+          const remote = await webdav.getJsonFile<Record<string, unknown>>(configPath);
+          if (remote && typeof remote === 'object' && !Array.isArray(remote)) {
+            baseConfig = { ...baseConfig, ...remote };
           }
-        : { ...existing, categories: categories.slice() };
-      delete nextConfig.aisles;
-      await saveTaskerConfig(nextConfig);
-      const webdav = createWebDavClient(state.credentials);
-      await webdav.putJsonFile(state.credentials.configPath, nextConfig, { createParents: true });
-    } catch {
-      // Local category update still succeeds if remote config write fails
-    }
+        } catch {
+          // Remote file may not exist yet or be temporarily unreachable; merge on local copy
+        }
+        const nextConfig = calendarHref
+          ? {
+              ...baseConfig,
+              categoriesByCalendar: {
+                ...(baseConfig.categoriesByCalendar ?? {}),
+                [calendarHref]: snapshot,
+              },
+            }
+          : { ...baseConfig, categories: snapshot };
+        delete nextConfig.aisles;
+        await saveTaskerConfig(nextConfig);
+        await webdav.putJsonFile(configPath, nextConfig, { createParents: true });
+      } catch {
+        // Local category update still succeeds if remote config write fails
+      }
+    });
+    await categoryWriteChain;
   }
 }
 

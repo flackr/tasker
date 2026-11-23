@@ -372,15 +372,22 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
     expect(renderedSummaries).toContain('Bread');
   });
 
-  it('defines explicit 58px tile heights, clips lists below the header, and paints header on top in Fitbit GUI', () => {
+  it('defines explicit 58px tile heights, 40px header spacers, non-overlapping title/category, and header on top in Fitbit GUI', () => {
     const gui = fsNode.readFileSync(path.resolve(__dirname, '../resources/index.gui'), 'utf8');
     const css = fsNode.readFileSync(path.resolve(__dirname, '../resources/styles.css'), 'utf8');
     expect(css).toMatch(/\.tile-list-item\s*\{[^}]*height:\s*58;/);
+    expect(css).toMatch(/\.header-spacer-item\s*\{[^}]*height:\s*40;/);
+    expect(gui).toMatch(/<symbol\s+id="header-spacer"\s+height="40">/);
     expect(gui).toMatch(/<symbol\s+id="list-item"\s+height="58">/);
     expect(gui).toMatch(/<use\s+id="list-tile-list"\s+href="#tile-list-item"\s+class="tile-list-item"\s+height="58">/);
-    // Lists are clipped inside nested <svg y="40" height="260"> AND header is declared after them
-    expect(gui).toMatch(/<svg\s+id="lists-view"\s+x="0"\s+y="40"\s+width="100%"\s+height="260"/);
-    expect(gui).toMatch(/<svg\s+id="tasks-view"\s+x="0"\s+y="40"\s+width="100%"\s+height="260"/);
+    // Custom task tile positions title (y=26) cleanly above category (y=48) without #checkbox-tile overlap
+    expect(gui).not.toContain('checkbox-tile');
+    expect(gui).toMatch(/id="task-title"[^>]*y="26"/);
+    expect(gui).toMatch(/id="item-category"[^>]*y="48"/);
+    // Both tile lists start with a 40px header spacer so item-0 has full space below the 40px header
+    expect(gui.indexOf('id="lists-header-spacer"')).toBeLessThan(gui.indexOf('id="list-item-0"'));
+    expect(gui.indexOf('id="tasks-header-spacer"')).toBeLessThan(gui.indexOf('id="item-0"'));
+    // Header is declared after both lists so it always paints on top
     expect(gui.indexOf('id="header-bg"')).toBeGreaterThan(gui.indexOf('id="tasks-view"'));
   });
 

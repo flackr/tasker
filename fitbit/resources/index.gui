@@ -1,33 +1,44 @@
 <svg>
   <rect id="background" x="0" y="0" width="100%" height="100%" fill="#000000" />
 
+  <!-- 40px top spacer so the first list/task item starts cleanly below the 40px sticky header -->
+  <symbol id="header-spacer" height="40">
+    <use href="#tile-list-item" class="header-spacer-item" height="40" display="inline">
+      <rect x="0" y="0" width="100%" height="40" fill="#000000" pointer-events="none" />
+    </use>
+  </symbol>
+
   <!-- Reusable list picker tile (explicit 58px height so multiple lists show at once on Versa 2) -->
   <symbol id="list-item" height="58">
     <use id="list-tile-list" href="#tile-list-item" class="tile-list-item" height="58">
       <rect id="list-touch" x="0" y="0" width="100%" height="58" fill="#000000" pointer-events="visible" />
-      <text id="list-title" x="14" y="28" text-length="28" font-size="22" fill="#ffffff" pointer-events="none"></text>
-      <text id="list-subtitle" x="14" y="50" text-length="28" font-size="14" fill="#60a5fa" pointer-events="none"></text>
+      <text id="list-title" x="14" y="26" text-length="28" font-size="22" fill="#ffffff" pointer-events="none"></text>
+      <text id="list-subtitle" x="14" y="48" text-length="28" font-size="14" fill="#60a5fa" pointer-events="none"></text>
       <rect id="list-divider-bottom" y="56" width="100%" height="2" fill="#1f2937" />
     </use>
   </symbol>
 
-  <!-- Reusable task tile -->
+  <!-- Reusable task tile: top-aligned title + bottom category + right checkbox -->
   <symbol id="task-item" height="58">
     <use id="task-tile-list" href="#tile-list-item" class="tile-list-item" height="58">
-      <rect id="item-background" width="100%" height="58" fill="#000000" />
-
-      <use id="task-checkbox" href="#checkbox-tile" class="checkbox-tile">
-        <set id="summary" href="header/text" attributeName="text-buffer" to="Placeholder" />
-      </use>
-      <text id="item-category" x="14" y="52" text-length="32" font-size="14" fill="#60a5fa" pointer-events="none"></text>
-
+      <rect id="task-touch" x="0" y="0" width="100%" height="58" fill="#000000" pointer-events="visible" />
+      <text id="task-title" x="14" y="26" text-length="24" font-size="22" fill="#ffffff" pointer-events="none"></text>
+      <text id="item-category" x="14" y="48" text-length="28" font-size="14" fill="#60a5fa" pointer-events="none"></text>
+      <rect id="checkbox-border" x="260" y="16" width="26" height="26" rx="6" fill="#6b7280" pointer-events="none" />
+      <rect id="checkbox-fill" x="262" y="18" width="22" height="22" rx="4" fill="#000000" pointer-events="none" />
+      <g id="checkbox-check" display="none" pointer-events="none">
+        <rect x="260" y="16" width="26" height="26" rx="6" fill="#22c55e" />
+        <line x1="266" y1="29" x2="271" y2="35" stroke-width="3" fill="#ffffff" />
+        <line x1="271" y1="35" x2="280" y2="23" stroke-width="3" fill="#ffffff" />
+      </g>
       <rect id="tile-divider-bottom" y="56" width="100%" height="2" fill="#1f2937" />
     </use>
   </symbol>
 
-  <!-- Sub-view: Available task lists picker (clipped viewport starting below header) -->
-  <svg id="lists-view" x="0" y="40" width="100%" height="260" display="none">
+  <!-- Sub-view: Available task lists picker (starts with 40px spacer below sticky header) -->
+  <g id="lists-view" display="none">
     <use id="lists-checklist" href="#tile-list" x="0" y="0" width="100%" height="100%">
+      <use id="lists-header-spacer" href="#header-spacer" class="header-spacer" />
       <use id="list-item-0" href="#list-item" class="item" />
       <use id="list-item-1" href="#list-item" class="item" />
       <use id="list-item-2" href="#list-item" class="item" />
@@ -49,11 +60,12 @@
       <use id="list-item-18" href="#list-item" class="item" />
       <use id="list-item-19" href="#list-item" class="item" />
     </use>
-  </svg>
+  </g>
 
-  <!-- Top-level view: Selected task list items (clipped viewport starting below header) -->
-  <svg id="tasks-view" x="0" y="40" width="100%" height="260">
+  <!-- Top-level view: Selected task list items (starts with 40px spacer below sticky header) -->
+  <g id="tasks-view">
     <use id="checklist" href="#tile-list" x="0" y="0" width="100%" height="100%">
+      <use id="tasks-header-spacer" href="#header-spacer" class="header-spacer" />
       <use id="item-0" href="#task-item" class="item" />
       <use id="item-1" href="#task-item" class="item" />
       <use id="item-2" href="#task-item" class="item" />
@@ -105,7 +117,7 @@
       <use id="item-48" href="#task-item" class="item" />
       <use id="item-49" href="#task-item" class="item" />
     </use>
-  </svg>
+  </g>
 
   <!-- Top header bar declared AFTER lists so it always paints above scrolled tiles -->
   <rect id="header-bg" x="0" y="0" width="100%" height="38" fill="#111827" />

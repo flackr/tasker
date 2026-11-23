@@ -11,6 +11,7 @@ export interface FetchInitLike {
   method?: string;
   headers?: { [key: string]: string };
   body?: string;
+  cache?: 'default' | 'no-store' | 'reload' | 'no-cache' | 'force-cache' | 'only-if-cached';
 }
 
 export type FetchLike = (url: string, init?: FetchInitLike) => Promise<FetchResponseLike>;

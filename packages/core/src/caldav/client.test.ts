@@ -216,6 +216,17 @@ describe('WebDavClient integration against @tasker/mock-caldav', () => {
       'Electrical',
       'Fasteners',
     ]);
+    // Normalized matching across trailing-slash / full-URL / encoded variants
+    expect(resolveConfiguredCategories(cfg, '/remote.php/dav/calendars/alice/hardware')).toEqual([
+      'Electrical',
+      'Fasteners',
+    ]);
+    expect(
+      resolveConfiguredCategories(
+        cfg,
+        'https://cloud.example.com/remote.php/dav/calendars/alice/hardware/',
+      ),
+    ).toEqual(['Electrical', 'Fasteners']);
     expect(resolveConfiguredCategories(cfg, '/remote.php/dav/calendars/alice/shopping/')).toEqual([
       'Produce',
       'Dairy',

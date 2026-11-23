@@ -21,3 +21,13 @@ text {
   width: 100%;
   height: 58;
 }
+
+.header-spacer {
+  width: 100%;
+  height: 40;
+}
+
+.header-spacer-item {
+  width: 100%;
+  height: 40;
+}

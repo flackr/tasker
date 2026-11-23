@@ -219,21 +219,48 @@ export function createWatchApp(options) {
       var taskTile = doc.getElementById("item-" + j);
       if (!taskTile) break;
       var taskTileList = taskTile.getElementById("task-tile-list");
-      var checkbox = taskTile.getElementById("task-checkbox");
+      var taskTouch = taskTile.getElementById("task-touch");
+      var taskTitle = taskTile.getElementById("task-title");
+      var checkboxCheck = taskTile.getElementById("checkbox-check");
+      var legacyCheckbox = taskTile.getElementById("task-checkbox");
+      var clickTarget = taskTouch || legacyCheckbox || taskTileList;
       taskTileRefs.push({
         tileList: taskTileList,
-        checkbox: checkbox,
+        titleEl: taskTitle,
+        checkboxCheck: checkboxCheck,
+        checkbox: legacyCheckbox,
         categoryEl: taskTile.getElementById("item-category"),
         visible: null,
         summary: null,
         completed: null,
         category: null,
       });
-      (function (index) {
-        checkbox.onclick = function () {
-          toggleTask(index);
-        };
-      })(j);
+      if (clickTarget) {
+        (function (index) {
+          clickTarget.onclick = function () {
+            toggleTask(index);
+          };
+        })(j);
+      }
+    }
+  }
+
+  function applyTaskSummaryUI(ref, summary) {
+    if (ref.titleEl) {
+      ref.titleEl.text = summary;
+    } else if (ref.checkbox) {
+      ref.checkbox.text = summary;
+    }
+  }
+
+  function applyTaskCompletedUI(ref, completed) {
+    if (ref.checkboxCheck) {
+      ref.checkboxCheck.style.display = completed ? "inline" : "none";
+      if (ref.titleEl && ref.titleEl.style) {
+        ref.titleEl.style.fill = completed ? "#9ca3af" : "#ffffff";
+      }
+    } else if (ref.checkbox) {
+      ref.checkbox.value = completed ? 1 : 0;
     }
   }
 
@@ -357,11 +384,11 @@ export function createWatchApp(options) {
       var item = state.items[i];
       var cat = getCategoryLabel(item);
       if (ref.summary !== item.summary) {
-        ref.checkbox.text = item.summary;
+        applyTaskSummaryUI(ref, item.summary);
         ref.summary = item.summary;
       }
       if (ref.completed !== item.completed) {
-        ref.checkbox.value = item.completed ? 1 : 0;
+        applyTaskCompletedUI(ref, item.completed);
         ref.completed = item.completed;
       }
       if (ref.categoryEl && ref.category !== cat) {
@@ -539,7 +566,7 @@ export function createWatchApp(options) {
     var ref = taskTileRefs[idx];
     if (ref) {
       ref.completed = nextCompleted;
-      ref.checkbox.value = nextCompleted ? 1 : 0;
+      applyTaskCompletedUI(ref, nextCompleted);
     }
     if (statusEl) {
       statusEl.text = computeStatusText();
