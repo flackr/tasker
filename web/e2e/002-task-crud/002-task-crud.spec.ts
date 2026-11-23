@@ -52,7 +52,7 @@ test('US-002: User manages tasks and customizes category order', async ({ page }
     await page.getByRole('button', { name: 'Connect' }).click();
 
     await expect(page.getByTestId('list-panel')).toBeVisible();
-    await expect(page.getByTestId('status')).toContainText('Loaded 2 tasks');
+    await expect(page.getByTestId('header-status')).toHaveText('Synced');
 
     await tester.step('category-sorted-list', {
       description: 'Config bootstraps default list and sorts items by category order (Produce before Dairy)',
@@ -74,14 +74,18 @@ test('US-002: User manages tasks and customizes category order', async ({ page }
       ],
     });
 
-    // Quick-add a Bakery item and check off Apples
+    // Tap floating + button to add a Bakery item and check off Apples
+    await page.getByTestId('add-task-fab').click();
+    await expect(page.getByTestId('add-task-modal')).toBeVisible();
     await page.getByLabel('New task').fill('Sourdough bread');
     await page.getByLabel('Category').selectOption('Bakery');
     await page.getByRole('button', { name: 'Add', exact: true }).click();
+    await expect(page.getByTestId('add-task-modal')).toBeHidden();
     await expect(page.getByTestId('task-list')).toContainText('Sourdough bread');
 
     await page.getByLabel('Mark Apples as completed').check();
     await expect(page.locator('[data-task-uid="apples"]')).toHaveClass(/completed/);
+    await expect(page.getByTestId('pending-badge')).toBeHidden();
 
     await tester.step('added-and-toggled', {
       description: 'Quick-added Bakery item slots between Produce and Dairy, and Apples is checked off',
@@ -128,8 +132,9 @@ test('US-002: User manages tasks and customizes category order', async ({ page }
     await expect(page.getByTestId('task-editor-modal')).toBeHidden();
     await expect(page.getByTestId('task-list')).toContainText('Organic whole milk');
 
-    // Reorder categories in Category Manager: move Dairy to the top
-    await page.getByRole('button', { name: 'Categories' }).click();
+    // Open side drawer → Categories and move Dairy to the top
+    await page.getByTestId('menu-toggle-btn').click();
+    await page.getByTestId('nav-categories').click();
     await expect(page.getByTestId('category-manager')).toBeVisible();
     await page.getByRole('button', { name: 'Move Dairy up' }).click();
     await page.getByRole('button', { name: 'Move Dairy up' }).click();
@@ -147,8 +152,9 @@ test('US-002: User manages tasks and customizes category order', async ({ page }
       ],
     });
 
-    // Return to Task List and verify new order + delete Apples
-    await page.getByRole('button', { name: 'Task List' }).click();
+    // Return to Shopping list via side drawer and delete Apples
+    await page.getByTestId('menu-toggle-btn').click();
+    await page.getByTestId('list-option-Shopping').click();
     await page.locator('[data-edit-uid="apples"]').click();
     await page.getByRole('button', { name: 'Delete' }).click();
     await page.getByRole('button', { name: 'Confirm Delete' }).click();

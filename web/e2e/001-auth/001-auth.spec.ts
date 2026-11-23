@@ -72,14 +72,18 @@ test('US-001: User enters credentials, selects a task list, and loads tasks', as
 
     await page.getByRole('button', { name: 'Load tasks' }).click();
 
-    await expect(page.getByTestId('status')).toContainText('Loaded 1 tasks');
+    await expect(page.getByTestId('header-status')).toHaveText('Synced');
+    await expect(page.getByTestId('task-list')).toContainText('Milk');
 
     await tester.step('tasks-loaded', {
-      description: 'Tasks load in the category-grouped task list after selecting a task list',
+      description: 'Tasks load in the category-grouped task list with a compact single-line header showing the active list and sync status',
       verifications: [
         {
-          spec: 'Status shows loaded task count',
-          check: async () => await expect(page.getByTestId('status')).toContainText('Loaded 1 tasks'),
+          spec: 'Header shows active list title and Synced status',
+          check: async () => {
+            await expect(page.getByTestId('header-title')).toContainText('Shopping');
+            await expect(page.getByTestId('header-status')).toHaveText('Synced');
+          },
         },
         {
           spec: 'Task list shows the fetched task under its category',

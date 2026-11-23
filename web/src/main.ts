@@ -37,7 +37,7 @@ import {
 import { registerServiceWorker, requestBackgroundFlush } from './sw-register';
 import { escapeAttr, escapeHtml } from './ui/html';
 import { renderCategoryManager } from './ui/category-manager';
-import { renderListView } from './ui/list-view';
+import { renderAddTaskModal, renderListView } from './ui/list-view';
 import { renderSettingsView } from './ui/settings-view';
 import { renderTaskEditor } from './ui/task-editor';
 
@@ -64,7 +64,8 @@ interface AppState {
   autoCategorizeProgress: string | null;
   missingConfigPath: string | null;
   creatingConfig: boolean;
-  listMenuOpen: boolean;
+  drawerOpen: boolean;
+  addingTask: boolean;
 }
 
 const appRoot = document.querySelector<HTMLDivElement>('#app');
@@ -95,7 +96,8 @@ const state: AppState = {
   autoCategorizeProgress: null,
   missingConfigPath: null,
   creatingConfig: false,
-  listMenuOpen: false,
+  drawerOpen: false,
+  addingTask: false,
 };
 
 function createEngine(credentials: Credentials): SyncEngine {
@@ -124,7 +126,8 @@ async function switchCalendar(
   autoCategorizeAbort = null;
   state.autoCategorizeProgress = null;
   attemptedAutoCategorizeUids.clear();
-  state.listMenuOpen = false;
+  state.drawerOpen = false;
+  state.addingTask = false;
   state.editingUid = null;
   state.confirmingDelete = false;
   state.renamingCategoryIndex = null;
@@ -205,19 +208,13 @@ async function bootstrap(): Promise<void> {
     }
   });
 
-  document.addEventListener('click', (event) => {
-    if (!state.listMenuOpen) return;
-    const target = event.target as Node | null;
-    const switcher = appRoot!.querySelector('.list-switcher');
-    if (switcher && target && !switcher.contains(target)) {
-      state.listMenuOpen = false;
-      render();
-    }
-  });
-
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && state.listMenuOpen) {
-      state.listMenuOpen = false;
+    if (event.key !== 'Escape') return;
+    if (state.addingTask) {
+      state.addingTask = false;
+      render();
+    } else if (state.drawerOpen) {
+      state.drawerOpen = false;
       render();
     }
   });
@@ -447,29 +444,87 @@ function getActiveCalendarName(): string | undefined {
   return state.calendars.find((c) => c.href === state.credentials?.calendarHref)?.displayName;
 }
 
-function renderBrandTitle(): string {
-  const activeHref = state.credentials?.calendarHref;
+function renderHeaderTitle(hasCalendar: boolean): string {
   const activeName = getActiveCalendarName();
-  if (!activeHref) {
-    return '<h1>tasker</h1>';
+  const title =
+    state.tab === 'list' && hasCalendar
+      ? activeName || 'Task List'
+      : state.tab === 'categories'
+        ? activeName
+          ? `${activeName} · Categories`
+          : 'Categories'
+        : hasCalendar
+          ? 'Settings'
+          : 'tasker';
+
+  if (hasCalendar) {
+    return `
+      <button
+        type="button"
+        id="header-title-btn"
+        class="header-title-btn"
+        data-testid="header-title"
+        aria-label="Switch list or open menu"
+      >
+        <h1 class="header-title">${escapeHtml(title)}</h1>
+      </button>
+    `;
   }
 
-  const title = activeName || 'Task List';
-  const menuItems = state.calendars
+  return `<h1 class="header-title" data-testid="header-title">${escapeHtml(title)}</h1>`;
+}
+
+function renderHeaderStatus(hasCalendar: boolean): string {
+  if (!hasCalendar) return '';
+
+  const label =
+    state.connectionState === 'connecting'
+      ? 'Syncing…'
+      : state.connectionState === 'offline' || !state.isOnline
+        ? 'Offline'
+        : state.connectionState === 'error'
+          ? 'Sync error'
+          : 'Synced';
+
+  const pillClass = `status-pill status-pill-${!state.isOnline ? 'offline' : state.connectionState}`;
+  const canSync = state.isOnline && state.connectionState !== 'connecting';
+
+  return `
+    <button
+      type="button"
+      id="sync-now-btn"
+      class="${pillClass}"
+      data-testid="sync-now"
+      title="${escapeAttr(state.statusMessage)}"
+      ${canSync ? '' : 'disabled'}
+    >
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+        <path d="M13.5 8A5.5 5.5 0 1 1 11.9 4.1M13.5 2.5V5.5H10.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+      <span data-testid="header-status">${label}</span>
+    </button>
+  `;
+}
+
+function renderNavDrawer(hasCalendar: boolean): string {
+  const activeHref = state.credentials?.calendarHref;
+  const activeName = getActiveCalendarName();
+
+  const calendarItems = state.calendars
     .map((cal) => {
-      const isActive = cal.href === activeHref;
+      const isActive = state.tab === 'list' && cal.href === activeHref;
+      const isSelected = cal.href === activeHref;
       return `
         <button
           type="button"
-          role="menuitemradio"
-          aria-checked="${isActive ? 'true' : 'false'}"
-          class="list-switcher-option ${isActive ? 'active' : ''}"
+          class="drawer-item ${isActive ? 'active' : ''}"
           data-switch-calendar="${escapeAttr(cal.href)}"
           data-testid="list-option-${escapeAttr(cal.displayName)}"
+          aria-current="${isSelected ? 'true' : 'false'}"
         >
           <span>${escapeHtml(cal.displayName)}</span>
           ${
-            isActive
+            isSelected
               ? '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.5L6.5 12L13 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
               : ''
           }
@@ -478,25 +533,49 @@ function renderBrandTitle(): string {
     .join('');
 
   return `
-    <div class="list-switcher">
-      <button
-        type="button"
-        id="list-switcher-btn"
-        class="list-switcher-btn"
-        data-testid="list-switcher-btn"
-        aria-haspopup="menu"
-        aria-expanded="${state.listMenuOpen ? 'true' : 'false'}"
-      >
-        <h1>${escapeHtml(title)}</h1>
-        <svg class="list-switcher-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-      </button>
-      ${
-        state.listMenuOpen
-          ? `<div class="list-switcher-menu" role="menu" data-testid="list-switcher-menu">${menuItems || '<div class="muted">No task lists found</div>'}</div>`
-          : ''
-      }
+    <div class="drawer-backdrop" id="drawer-backdrop" data-testid="drawer-backdrop">
+      <aside class="nav-drawer" role="dialog" aria-modal="true" aria-label="Navigation menu" data-testid="nav-drawer">
+        <div class="drawer-header">
+          <span class="drawer-brand">tasker</span>
+          <button type="button" id="drawer-close-btn" class="menu-btn" aria-label="Close menu">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+              <path d="M4.5 4.5L13.5 13.5M13.5 4.5L4.5 13.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+          </button>
+        </div>
+
+        ${
+          state.calendars.length > 0
+            ? `
+          <div class="drawer-section">
+            <div class="drawer-section-label">Task Lists</div>
+            ${calendarItems}
+          </div>`
+            : ''
+        }
+
+        <div class="drawer-section">
+          <div class="drawer-section-label">Manage</div>
+          <button
+            type="button"
+            class="drawer-item ${state.tab === 'categories' ? 'active' : ''}"
+            data-tab="categories"
+            data-testid="nav-categories"
+          >
+            <span>Categories</span>
+            ${activeName ? `<span class="drawer-item-meta">${escapeHtml(activeName)}</span>` : ''}
+          </button>
+          <button
+            type="button"
+            class="drawer-item ${state.tab === 'settings' ? 'active' : ''}"
+            data-tab="settings"
+            data-testid="nav-settings"
+          >
+            <span>Settings</span>
+            ${hasCalendar ? '' : '<span class="drawer-item-meta">Setup</span>'}
+          </button>
+        </div>
+      </aside>
     </div>
   `;
 }
@@ -513,7 +592,6 @@ function render(): void {
           tasks: state.tasks,
           categoryOrder: state.categoryOrder,
           conflicts: state.conflicts,
-          statusMessage: state.statusMessage,
           hideCompleted: state.hideCompleted,
           promptApiAvailability: state.promptApiAvailability,
           autoCategorizeProgress: state.autoCategorizeProgress,
@@ -538,16 +616,25 @@ function render(): void {
   appRoot!.innerHTML = `
     <div class="app-shell">
       <header class="app-header">
-        <div class="brand">
-          ${renderBrandTitle()}
-          ${state.pendingCount > 0 ? `<span class="pending-badge" data-testid="pending-badge">${state.pendingCount} pending</span>` : ''}
+        <div class="header-left">
+          <button
+            type="button"
+            id="menu-toggle-btn"
+            class="menu-btn"
+            data-testid="menu-toggle-btn"
+            aria-label="Open menu"
+            aria-expanded="${state.drawerOpen ? 'true' : 'false'}"
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M3 5.5H17M3 10H17M3 14.5H17" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+          </button>
+          ${renderHeaderTitle(hasCalendar)}
         </div>
-        <nav class="nav-tabs" aria-label="Main navigation">
-          <button type="button" class="nav-tab ${state.tab === 'list' ? 'active' : ''}" data-tab="list" ${!hasCalendar ? 'disabled' : ''}>Task List</button>
-          <button type="button" class="nav-tab ${state.tab === 'categories' ? 'active' : ''}" data-tab="categories">Categories</button>
-          <button type="button" class="nav-tab ${state.tab === 'settings' ? 'active' : ''}" data-tab="settings">Settings</button>
-          ${hasCalendar ? `<button type="button" id="sync-now-btn" class="btn-sync" data-testid="sync-now" ${!state.isOnline ? 'disabled' : ''}>Sync</button>` : ''}
-        </nav>
+        <div class="header-right">
+          ${state.pendingCount > 0 ? `<span class="pending-badge" data-testid="pending-badge">${state.pendingCount} pending</span>` : ''}
+          ${renderHeaderStatus(hasCalendar)}
+        </div>
       </header>
       ${
         !state.isOnline
@@ -557,6 +644,8 @@ function render(): void {
       <main class="main-content">
         ${mainContent}
       </main>
+      ${state.drawerOpen ? renderNavDrawer(hasCalendar) : ''}
+      ${state.addingTask && hasCalendar ? renderAddTaskModal({ categoryOrder: state.categoryOrder }) : ''}
       ${
         editingTask
           ? renderTaskEditor({
@@ -570,16 +659,40 @@ function render(): void {
   `;
 
   bindEvents();
+  if (state.addingTask) {
+    appRoot!.querySelector<HTMLInputElement>('#quick-add-summary')?.focus();
+  }
 }
 
 function bindEvents(): void {
-  // Header: list switcher menu
+  // Header: open/close side drawer
+  const openDrawer = () => {
+    state.drawerOpen = true;
+    render();
+  };
+  const closeDrawer = () => {
+    state.drawerOpen = false;
+    render();
+  };
+
   appRoot!
-    .querySelector<HTMLButtonElement>('#list-switcher-btn')
-    ?.addEventListener('click', (event) => {
-      event.stopPropagation();
-      state.listMenuOpen = !state.listMenuOpen;
+    .querySelector<HTMLButtonElement>('#menu-toggle-btn')
+    ?.addEventListener('click', () => {
+      state.drawerOpen = !state.drawerOpen;
       render();
+    });
+  appRoot!
+    .querySelector<HTMLButtonElement>('#header-title-btn')
+    ?.addEventListener('click', openDrawer);
+  appRoot!
+    .querySelector<HTMLButtonElement>('#drawer-close-btn')
+    ?.addEventListener('click', closeDrawer);
+  appRoot!
+    .querySelector<HTMLDivElement>('#drawer-backdrop')
+    ?.addEventListener('click', (event) => {
+      if (event.target === event.currentTarget) {
+        closeDrawer();
+      }
     });
 
   appRoot!
@@ -589,20 +702,24 @@ function bindEvents(): void {
         const href = btn.dataset.switchCalendar;
         if (!href) return;
         if (href === state.credentials?.calendarHref) {
-          state.listMenuOpen = false;
+          state.drawerOpen = false;
+          state.tab = 'list';
           render();
+          if (state.autoCategorize) {
+            void maybeAutoCategorize(false);
+          }
           return;
         }
-        void switchCalendar(href);
+        void switchCalendar(href, { openListTab: true });
       });
     });
 
-  // Navigation tabs
+  // Navigation items inside drawer
   appRoot!.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const next = btn.dataset.tab as ActiveTab;
       if (!next) return;
-      state.listMenuOpen = false;
+      state.drawerOpen = false;
       state.tab = next;
       state.renamingCategoryIndex = null;
       render();
@@ -611,6 +728,32 @@ function bindEvents(): void {
       }
     });
   });
+
+  // Floating + button & New Task modal
+  appRoot!
+    .querySelector<HTMLButtonElement>('#add-task-fab')
+    ?.addEventListener('click', () => {
+      state.addingTask = true;
+      render();
+    });
+
+  const closeAddTaskModal = () => {
+    state.addingTask = false;
+    render();
+  };
+  appRoot!
+    .querySelector<HTMLButtonElement>('#add-task-cancel')
+    ?.addEventListener('click', closeAddTaskModal);
+  appRoot!
+    .querySelector<HTMLButtonElement>('#add-task-close-x')
+    ?.addEventListener('click', closeAddTaskModal);
+  appRoot!
+    .querySelector<HTMLDivElement>('#add-task-backdrop')
+    ?.addEventListener('click', (event) => {
+      if (event.target === event.currentTarget) {
+        closeAddTaskModal();
+      }
+    });
 
   // Manual sync button
   appRoot!.querySelector<HTMLButtonElement>('#sync-now-btn')?.addEventListener('click', () => {
@@ -652,7 +795,8 @@ function bindEvents(): void {
     state.autoCategorizeProgress = null;
     state.missingConfigPath = null;
     state.creatingConfig = false;
-    state.listMenuOpen = false;
+    state.drawerOpen = false;
+    state.addingTask = false;
     state.connectionState = 'idle';
     state.statusMessage = 'Credentials and local cache cleared.';
     state.tab = 'settings';
@@ -748,7 +892,7 @@ function bindEvents(): void {
       render();
     });
 
-  // List: quick-add form
+  // List: add-task modal form
   const quickAddForm = appRoot!.querySelector<HTMLFormElement>('#quick-add-form');
   quickAddForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -756,10 +900,13 @@ function bindEvents(): void {
     const formData = new FormData(quickAddForm);
     const summary = String(formData.get('summary') ?? '').trim();
     const category = String(formData.get('category') ?? '').trim();
+    const description = String(formData.get('description') ?? '').trim();
     if (!summary) return;
+    state.addingTask = false;
     const created = await syncEngine.createTask(state.credentials.calendarHref, {
       summary,
       categories: category ? [category] : [],
+      ...(description ? { description } : {}),
     });
     await flushOrScheduleSync();
     if (!category && state.autoCategorize) {

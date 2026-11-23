@@ -111,10 +111,10 @@ This document tracks all planned work towards building the complete tasker ecosy
 
 ### Task List, Category & AI Auto-Categorize UI
 - [x] Implement category-grouped task list view (`ui/list-view.ts`) using `@tasker/core/watch` `sortTasksByCategory`
-- [x] Quick-add bar and one-tap completion toggle (optimistic local update + sync)
+- [x] Floating `+` button opening the New Task modal and one-tap completion toggle (optimistic local update + sync)
 - [x] Implement task editor (`ui/task-editor.ts`): add/edit summary, categories, notes, priority, and delete with confirmation
 - [x] Implement category manager (`ui/category-manager.ts`): add, rename, reorder, delete categories per task list (persisted locally and synced via `categoriesByCalendar` in `tasker-config.json`)
-- [x] Show the active task list title as the clickable main header title to switch lists from anywhere in the PWA
+- [x] Compact single-line mobile header (active list title + sync status pill) and slide-over side drawer for task lists, Categories, and Settings
 - [x] Implement on-device AI auto-categorization (`web/src/ai/categorizer.ts`) using the Web Prompt API (`LanguageModel`) with a Settings toggle and step-by-step progress UI
 - [x] Write Playwright E2E + zero-pixel visual regression scenarios:
   - [x] Task CRUD & category-sorted task list (`web/e2e/002-task-crud/`)

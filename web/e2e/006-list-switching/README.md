@@ -1,28 +1,38 @@
-# Test: Quick List Switching & Per-List Categories
+# Test: Compact Mobile Layout, Side Drawer & Per-List Categories
 
-As a user with multiple task lists, I want the active list name as the main title so clicking it lets me switch lists immediately, and I want each list to maintain its own categories.
+As a mobile user, I want a compact single-line header showing the active list and sync status, a side drawer for switching lists and opening Categories/Settings, per-list categories, and a + button to open the new-task dialog.
 
-## Clicking the active list title in the header opens the quick list switcher menu
+## Side drawer lists all task lists alongside Categories and Settings while keeping the header to a single line
 
-![Clicking the active list title in the header opens the quick list switcher menu](./screenshots/000-list-switcher-open.png)
+![Side drawer lists all task lists alongside Categories and Settings while keeping the header to a single line](./screenshots/000-side-drawer-open.png)
 
 **Verifications:**
-- [x] Main title shows Shopping and switcher menu lists Shopping and Hardware
+- [x] Side drawer shows Shopping (active), Hardware, Categories, and Settings
 
 ---
 
-## Selecting Hardware updates the main title and loads Hardware tasks sorted by its own categories
+## Mobile view shows a single-line Hardware header, Hardware tasks sorted by its own categories, and a floating + button
 
-![Selecting Hardware updates the main title and loads Hardware tasks sorted by its own categories](./screenshots/001-switched-to-hardware.png)
+![Mobile view shows a single-line Hardware header, Hardware tasks sorted by its own categories, and a floating + button](./screenshots/001-switched-to-hardware.png)
 
 **Verifications:**
-- [x] Main title is Hardware and tasks are grouped Electrical before Fasteners
+- [x] Header shows Hardware and Synced on a single line
+- [x] Hardware tasks are grouped Electrical before Fasteners and + button is visible
 
 ---
 
-## Categories tab edits categories specifically for Hardware without modifying Shopping
+## Tapping the + button opens the New Task modal populated with Hardware categories
 
-![Categories tab edits categories specifically for Hardware without modifying Shopping](./screenshots/002-per-list-categories.png)
+![Tapping the + button opens the New Task modal populated with Hardware categories](./screenshots/002-add-task-modal.png)
+
+**Verifications:**
+- [x] New Task dialog is visible with Electrical and Fasteners options
+
+---
+
+## Categories view edits categories specifically for Hardware without modifying Shopping
+
+![Categories view edits categories specifically for Hardware without modifying Shopping](./screenshots/003-per-list-categories.png)
 
 **Verifications:**
 - [x] Hardware Categories shows Electrical, Fasteners, Lumber

@@ -7,10 +7,13 @@ export interface ListViewProps {
   tasks: Task[];
   categoryOrder: string[];
   conflicts: SyncConflict[];
-  statusMessage: string;
   hideCompleted: boolean;
   promptApiAvailability: PromptApiAvailability;
   autoCategorizeProgress: string | null;
+}
+
+export interface AddTaskModalProps {
+  categoryOrder: string[];
 }
 
 interface CategoryGroup {
@@ -59,7 +62,6 @@ export function renderListView({
   tasks,
   categoryOrder,
   conflicts,
-  statusMessage,
   hideCompleted,
   promptApiAvailability,
   autoCategorizeProgress,
@@ -72,21 +74,14 @@ export function renderListView({
   const groups = groupTasksByCategory(visibleTasks, categoryOrder);
   const canAutoCategorize = isPromptApiUsable(promptApiAvailability) && categoryOrder.length > 0;
 
-  const categoryOptions = [
-    '<option value="">Uncategorized</option>',
-    ...categoryOrder.map(
-      (cat) => `<option value="${escapeAttr(cat)}">${escapeHtml(cat)}</option>`,
-    ),
-  ].join('');
-
   return `
-    <section class="panel" data-testid="list-panel">
-      <div class="panel-header panel-header-compact">
-        <p class="status status-inline" data-testid="status">${escapeHtml(statusMessage)}</p>
+    <section class="panel list-panel" data-testid="list-panel">
+      <div class="list-toolbar">
+        <span class="list-count">${visibleTasks.length} ${visibleTasks.length === 1 ? 'item' : 'items'}</span>
         <div class="list-controls">
           ${
             canAutoCategorize && !autoCategorizeProgress && uncategorizedCount > 0
-              ? `<button type="button" id="run-auto-categorize" class="btn-ghost" data-testid="run-auto-categorize">Auto-categorize (${uncategorizedCount})</button>`
+              ? `<button type="button" id="run-auto-categorize" class="btn-ghost btn-compact" data-testid="run-auto-categorize">Auto-categorize (${uncategorizedCount})</button>`
               : ''
           }
           <label class="toggle-label">
@@ -100,33 +95,79 @@ export function renderListView({
         autoCategorizeProgress
           ? `<div class="ai-progress-banner" role="status" data-testid="ai-progress-banner">
               <span>${escapeHtml(autoCategorizeProgress)}</span>
-              <button type="button" id="stop-auto-categorize" class="btn-ghost">Stop</button>
+              <button type="button" id="stop-auto-categorize" class="btn-ghost btn-compact">Stop</button>
             </div>`
           : ''
       }
 
       ${conflicts.length > 0 ? renderConflictBanners(conflicts) : ''}
 
-      <form id="quick-add-form" class="quick-add-form" data-testid="quick-add-form">
-        <input
-          name="summary"
-          type="text"
-          required
-          placeholder="Add task…"
-          aria-label="New task"
-        />
-        <select name="category" aria-label="Category">${categoryOptions}</select>
-        <button type="submit">Add</button>
-      </form>
-
       <div class="category-groups" data-testid="task-list">
         ${
           groups.length > 0
             ? groups.map(renderCategoryGroup).join('')
-            : '<p class="empty">No items in this list yet.</p>'
+            : '<p class="empty">No items in this list yet. Tap + to add one.</p>'
         }
       </div>
     </section>
+
+    <button
+      type="button"
+      id="add-task-fab"
+      class="fab"
+      data-testid="add-task-fab"
+      aria-label="Add task"
+      title="Add task"
+    >
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" />
+      </svg>
+    </button>
+  `;
+}
+
+export function renderAddTaskModal({ categoryOrder }: AddTaskModalProps): string {
+  const categoryOptions = [
+    '<option value="">Uncategorized</option>',
+    ...categoryOrder.map(
+      (cat) => `<option value="${escapeAttr(cat)}">${escapeHtml(cat)}</option>`,
+    ),
+  ].join('');
+
+  return `
+    <div class="modal-backdrop" id="add-task-backdrop" data-testid="add-task-modal">
+      <div class="panel modal-card" role="dialog" aria-modal="true" aria-labelledby="add-task-title">
+        <div class="panel-header">
+          <h2 id="add-task-title">Add Task</h2>
+          <button type="button" class="btn-ghost" id="add-task-close-x" aria-label="Close">Close</button>
+        </div>
+        <form id="quick-add-form" class="stack-form" data-testid="quick-add-form">
+          <label>
+            <span>Task</span>
+            <input
+              id="quick-add-summary"
+              name="summary"
+              type="text"
+              required
+              placeholder="What needs to be done?"
+              aria-label="New task"
+            />
+          </label>
+          <label>
+            <span>Category</span>
+            <select name="category" aria-label="Category">${categoryOptions}</select>
+          </label>
+          <label>
+            <span>Notes <small class="muted">(optional)</small></span>
+            <textarea name="description" rows="2" placeholder="Optional details…"></textarea>
+          </label>
+          <div class="actions">
+            <button type="submit">Add</button>
+            <button type="button" class="btn-secondary" id="add-task-cancel">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
   `;
 }
 

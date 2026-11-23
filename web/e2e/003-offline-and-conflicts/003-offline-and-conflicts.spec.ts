@@ -35,17 +35,20 @@ test('US-003: User edits tasks offline and resolves a 412 conflict on reconnect'
     await page.getByLabel('App password').fill('secret');
     await page.getByRole('button', { name: 'Connect' }).click();
     await page.getByRole('button', { name: 'Load tasks' }).click();
-    await expect(page.getByTestId('status')).toContainText('Loaded 1 tasks');
+    await expect(page.getByTestId('header-status')).toHaveText('Synced');
 
     // Go offline
     await context.setOffline(true);
     await page.evaluate(() => window.dispatchEvent(new Event('offline')));
     await expect(page.getByTestId('offline-banner')).toBeVisible();
 
-    // Queue offline changes: add Eggs + check off Milk
+    // Queue offline changes: tap + button to add Eggs + check off Milk
+    await page.getByTestId('add-task-fab').click();
+    await expect(page.getByTestId('add-task-modal')).toBeVisible();
     await page.getByLabel('New task').fill('Eggs');
     await page.getByLabel('Category').selectOption('Dairy');
     await page.getByRole('button', { name: 'Add', exact: true }).click();
+    await expect(page.getByTestId('add-task-modal')).toBeHidden();
     await page.getByLabel('Mark Milk as completed').check();
 
     await expect(page.getByTestId('pending-badge')).toContainText('2 pending');

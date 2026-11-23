@@ -13,7 +13,7 @@ export function renderCategoryManager({
 }: CategoryManagerProps): string {
   const heading = calendarName ? `${calendarName} Categories` : 'Category Order';
   const subtitle = calendarName
-    ? `Tasks in "${calendarName}" are grouped and sorted in this order on both the web app and Fitbit watch. Switch lists from the title above to customize other lists.`
+    ? `Tasks in "${calendarName}" are grouped and sorted in this order on both the web app and Fitbit watch. Open the menu to switch lists.`
     : 'Tasks in both the web app and Fitbit watch are grouped and sorted in this order.';
 
   return `

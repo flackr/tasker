@@ -78,8 +78,9 @@ test('US-004: Auto-categorize uncategorized tasks using the browser Prompt API',
     await expect(page.getByTestId('list-panel')).toBeVisible();
     await expect(page.getByTestId('run-auto-categorize')).toContainText('Auto-categorize (3)');
 
-    // Open Settings and verify Prompt API availability + enable Auto-Categorize
-    await page.getByRole('button', { name: 'Settings' }).click();
+    // Open Settings via side drawer and verify Prompt API availability + enable Auto-Categorize
+    await page.getByTestId('menu-toggle-btn').click();
+    await page.getByTestId('nav-settings').click();
     await expect(page.getByTestId('ai-availability-badge')).toHaveText('Local AI ready');
     await page.getByTestId('auto-categorize-toggle').check();
 
@@ -97,8 +98,9 @@ test('US-004: Auto-categorize uncategorized tasks using the browser Prompt API',
       ],
     });
 
-    // Switch back to Task List → automatically steps through the 3 uncategorized items one by one
-    await page.getByRole('button', { name: 'Task List' }).click();
+    // Switch back to Shopping list via side drawer → automatically steps through the 3 uncategorized items
+    await page.getByTestId('menu-toggle-btn').click();
+    await page.getByTestId('list-option-Shopping').click();
 
     await expect(page.locator('.category-heading')).toHaveText(['Produce', 'Bakery', 'Dairy']);
     await expect(page.getByTestId('ai-progress-banner')).toBeHidden();
@@ -136,9 +138,12 @@ test('US-004: Auto-categorize uncategorized tasks using the browser Prompt API',
       ],
     });
 
-    // Quick-add a new uncategorized item while Auto-Categorize is on → automatically lands in Dairy
+    // Tap + button to add a new uncategorized item while Auto-Categorize is on → automatically lands in Dairy
+    await page.getByTestId('add-task-fab').click();
+    await expect(page.getByTestId('add-task-modal')).toBeVisible();
     await page.getByLabel('New task').fill('Cheddar Cheese');
     await page.getByRole('button', { name: 'Add', exact: true }).click();
+    await expect(page.getByTestId('add-task-modal')).toBeHidden();
     await expect(page.locator('[data-category="Dairy"]')).toContainText('Cheddar Cheese');
     await expect(page.getByTestId('ai-progress-banner')).toBeHidden();
     await expect(page.getByTestId('pending-badge')).toBeHidden();

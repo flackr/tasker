@@ -17,12 +17,15 @@ function makeIcs(uid: string, summary: string, categories: string): string {
   ].join('\r\n');
 }
 
-test('US-006: User switches task lists from the main title and manages per-list categories', async ({ page }, testInfo) => {
+test('US-006: Compact mobile header, side drawer list switching, + add-task dialog, and per-list categories', async ({ page }, testInfo) => {
   const tester = new TestStepHelper(page, testInfo);
   tester.setMetadata(
-    'Quick List Switching & Per-List Categories',
-    'As a user with multiple task lists, I want the active list name as the main title so clicking it lets me switch lists immediately, and I want each list to maintain its own categories.',
+    'Compact Mobile Layout, Side Drawer & Per-List Categories',
+    'As a mobile user, I want a compact single-line header showing the active list and sync status, a side drawer for switching lists and opening Categories/Settings, per-list categories, and a + button to open the new-task dialog.',
   );
+
+  // Use a realistic mobile viewport to verify single-line header & compact mobile ergonomics
+  await page.setViewportSize({ width: 390, height: 844 });
 
   const shoppingHref = '/remote.php/dav/calendars/alice/shopping/';
   const hardwareHref = '/remote.php/dav/calendars/alice/hardware/';
@@ -64,49 +67,84 @@ test('US-006: User switches task lists from the main title and manages per-list 
     await page.getByLabel('Config JSON path').fill('Notes/tasker-config.json');
     await page.getByRole('button', { name: 'Connect' }).click();
 
-    await expect(page.getByTestId('list-switcher-btn')).toContainText('Shopping');
+    await expect(page.getByTestId('header-title')).toContainText('Shopping');
+    await expect(page.getByTestId('header-status')).toHaveText('Synced');
     await expect(page.locator('.category-heading')).toHaveText(['Produce', 'Dairy']);
 
-    // Click main list title to open the list switcher menu
-    await page.getByTestId('list-switcher-btn').click();
-    await expect(page.getByTestId('list-switcher-menu')).toBeVisible();
+    // Verify single-line compact header on mobile (52px tall)
+    const headerBox = await page.locator('.app-header').boundingBox();
+    expect(headerBox?.height).toBeLessThanOrEqual(54);
 
-    await tester.step('list-switcher-open', {
-      description: 'Clicking the active list title in the header opens the quick list switcher menu',
+    // Open side drawer from menu button / title
+    await page.getByTestId('menu-toggle-btn').click();
+    await expect(page.getByTestId('nav-drawer')).toBeVisible();
+
+    await tester.step('side-drawer-open', {
+      description: 'Side drawer lists all task lists alongside Categories and Settings while keeping the header to a single line',
       verifications: [
         {
-          spec: 'Main title shows Shopping and switcher menu lists Shopping and Hardware',
+          spec: 'Side drawer shows Shopping (active), Hardware, Categories, and Settings',
           check: async () => {
-            await expect(page.getByTestId('list-switcher-btn')).toContainText('Shopping');
-            await expect(page.getByTestId('list-option-Shopping')).toHaveAttribute('aria-checked', 'true');
+            await expect(page.getByTestId('list-option-Shopping')).toHaveAttribute('aria-current', 'true');
             await expect(page.getByTestId('list-option-Hardware')).toBeVisible();
+            await expect(page.getByTestId('nav-categories')).toBeVisible();
+            await expect(page.getByTestId('nav-settings')).toBeVisible();
           },
         },
       ],
     });
 
-    // Switch to Hardware list
+    // Switch to Hardware list from drawer
     await page.getByTestId('list-option-Hardware').click();
-    await expect(page.getByTestId('list-switcher-btn')).toContainText('Hardware');
+    await expect(page.getByTestId('nav-drawer')).toBeHidden();
+    await expect(page.getByTestId('header-title')).toContainText('Hardware');
+    await expect(page.getByTestId('header-status')).toHaveText('Synced');
     await expect(page.locator('.category-heading')).toHaveText(['Electrical', 'Fasteners']);
 
     await tester.step('switched-to-hardware', {
-      description: 'Selecting Hardware updates the main title and loads Hardware tasks sorted by its own categories',
+      description: 'Mobile view shows a single-line Hardware header, Hardware tasks sorted by its own categories, and a floating + button',
       verifications: [
         {
-          spec: 'Main title is Hardware and tasks are grouped Electrical before Fasteners',
+          spec: 'Header shows Hardware and Synced on a single line',
           check: async () => {
-            await expect(page.getByTestId('list-switcher-btn')).toContainText('Hardware');
+            await expect(page.getByTestId('header-title')).toContainText('Hardware');
+            await expect(page.getByTestId('header-status')).toHaveText('Synced');
+          },
+        },
+        {
+          spec: 'Hardware tasks are grouped Electrical before Fasteners and + button is visible',
+          check: async () => {
             await expect(page.locator('.category-heading')).toHaveText(['Electrical', 'Fasteners']);
-            await expect(page.getByTestId('task-list')).toContainText('Romex Wire');
-            await expect(page.getByTestId('task-list')).toContainText('Wood Screws');
+            await expect(page.getByTestId('add-task-fab')).toBeVisible();
           },
         },
       ],
     });
 
-    // Open Categories tab for Hardware and add a Hardware-only category ("Lumber")
-    await page.getByRole('button', { name: 'Categories' }).click();
+    // Tap floating + button to open New Task modal
+    await page.getByTestId('add-task-fab').click();
+    await expect(page.getByTestId('add-task-modal')).toBeVisible();
+
+    await tester.step('add-task-modal', {
+      description: 'Tapping the + button opens the New Task modal populated with Hardware categories',
+      verifications: [
+        {
+          spec: 'New Task dialog is visible with Electrical and Fasteners options',
+          check: async () => {
+            await expect(page.getByTestId('add-task-modal')).toBeVisible();
+            await expect(page.getByLabel('Category')).toContainText('Electrical');
+            await expect(page.getByLabel('Category')).toContainText('Fasteners');
+          },
+        },
+      ],
+    });
+
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await expect(page.getByTestId('add-task-modal')).toBeHidden();
+
+    // Open Categories from side drawer for Hardware and add "Lumber"
+    await page.getByTestId('menu-toggle-btn').click();
+    await page.getByTestId('nav-categories').click();
     await expect(page.getByTestId('category-manager')).toContainText('Hardware Categories');
     await page.getByLabel('New category name').fill('Lumber');
     await page.getByRole('button', { name: 'Add category' }).click();
@@ -117,7 +155,7 @@ test('US-006: User switches task lists from the main title and manages per-list 
     ]);
 
     await tester.step('per-list-categories', {
-      description: 'Categories tab edits categories specifically for Hardware without modifying Shopping',
+      description: 'Categories view edits categories specifically for Hardware without modifying Shopping',
       verifications: [
         {
           spec: 'Hardware Categories shows Electrical, Fasteners, Lumber',
@@ -145,12 +183,6 @@ test('US-006: User switches task lists from the main title and manages per-list 
         },
       ],
     });
-
-    // Switching back to Shopping while on Categories tab immediately shows Shopping's own categories
-    await page.getByTestId('list-switcher-btn').click();
-    await page.getByTestId('list-option-Shopping').click();
-    await expect(page.getByTestId('category-manager')).toContainText('Shopping Categories');
-    await expect(page.locator('.category-name')).toHaveText(['1. Produce', '2. Dairy']);
 
     tester.generateDocs();
   } finally {
