@@ -111,7 +111,7 @@ This document tracks all planned work towards building the complete tasker ecosy
 
 ### Task List, Category & AI Auto-Categorize UI
 - [x] Implement category-grouped task list view (`ui/list-view.ts`) using `@tasker/core/watch` `sortTasksByCategory`
-- [x] Floating `+` button opening the New Task modal and one-tap completion toggle (optimistic local update + sync)
+- [x] Minimal mobile task rows (category badge removed in favor of group headings; checkbox-only toggle; tapping task title enables inline edit and reveals **Edit** & one-tap **Delete** buttons, plus **Clear done** toolbar action)
 - [x] Implement task editor (`ui/task-editor.ts`): add/edit summary, categories, notes, priority, and delete with confirmation
 - [x] Implement category manager (`ui/category-manager.ts`): add, rename, reorder, delete categories per task list (persisted locally and synced via `categoriesByCalendar` in `tasker-config.json`)
 - [x] Compact single-line mobile header (active list title + sync status pill) and slide-over side drawer for task lists, Categories, and Settings

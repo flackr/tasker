@@ -56,6 +56,7 @@ interface AppState {
   connectionState: ConnectionState;
   isOnline: boolean;
   hideCompleted: boolean;
+  focusedUid: string | null;
   editingUid: string | null;
   confirmingDelete: boolean;
   renamingCategoryIndex: number | null;
@@ -74,6 +75,8 @@ if (!appRoot) throw new Error('App root not found');
 const storage = new IndexedDbSyncStorage();
 let syncEngine: SyncEngine | null = null;
 let syncInFlight = false;
+let syncQueued = false;
+let syncQueuedForce = false;
 let autoCategorizeAbort: AbortController | null = null;
 let categoryWriteChain: Promise<void> = Promise.resolve();
 const attemptedAutoCategorizeUids = new Set<string>();
@@ -89,6 +92,7 @@ const state: AppState = {
   connectionState: 'idle',
   isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
   hideCompleted: false,
+  focusedUid: null,
   editingUid: null,
   confirmingDelete: false,
   renamingCategoryIndex: null,
@@ -129,6 +133,7 @@ async function switchCalendar(
   attemptedAutoCategorizeUids.clear();
   state.drawerOpen = false;
   state.addingTask = false;
+  state.focusedUid = null;
   state.editingUid = null;
   state.confirmingDelete = false;
   state.renamingCategoryIndex = null;
@@ -209,6 +214,17 @@ async function bootstrap(): Promise<void> {
     }
   });
 
+  document.addEventListener('click', (event) => {
+    if (!state.focusedUid) return;
+    const target = event.target as Node | null;
+    const focusedRow = appRoot!.querySelector(
+      `[data-task-uid="${CSS.escape(state.focusedUid)}"]`,
+    );
+    if (focusedRow && target && !focusedRow.contains(target)) {
+      void commitInlineEditAndBlur();
+    }
+  });
+
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
     if (state.addingTask) {
@@ -216,6 +232,9 @@ async function bootstrap(): Promise<void> {
       render();
     } else if (state.drawerOpen) {
       state.drawerOpen = false;
+      render();
+    } else if (state.focusedUid) {
+      state.focusedUid = null;
       render();
     }
   });
@@ -284,7 +303,13 @@ async function discoverCalendars(credentials: Credentials): Promise<void> {
 }
 
 async function runSync(options: { force?: boolean } = {}): Promise<void> {
-  if (!state.credentials?.calendarHref || !syncEngine || syncInFlight) return;
+  if (!state.credentials?.calendarHref || !syncEngine) return;
+
+  if (syncInFlight) {
+    syncQueued = true;
+    if (options.force) syncQueuedForce = true;
+    return;
+  }
 
   if (!navigator.onLine) {
     state.isOnline = false;
@@ -328,6 +353,14 @@ async function runSync(options: { force?: boolean } = {}): Promise<void> {
   } finally {
     syncInFlight = false;
     render();
+  }
+
+  if (syncQueued) {
+    const nextForce = syncQueuedForce;
+    syncQueued = false;
+    syncQueuedForce = false;
+    await runSync({ force: nextForce });
+    return;
   }
 
   if (state.autoCategorize && state.tab === 'list') {
@@ -457,6 +490,27 @@ async function persistCategories(categories: string[]): Promise<void> {
     });
     await categoryWriteChain;
   }
+}
+
+async function commitInlineEdit(uid: string): Promise<void> {
+  if (!syncEngine) return;
+  const input = appRoot!.querySelector<HTMLInputElement>(
+    `input[data-inline-uid="${CSS.escape(uid)}"]`,
+  );
+  if (!input) return;
+  const nextSummary = input.value.trim();
+  const existing = state.tasks.find((t) => t.uid === uid);
+  if (!existing || !nextSummary || nextSummary === existing.summary) return;
+  await syncEngine.updateTask({ ...existing, summary: nextSummary });
+  await flushOrScheduleSync();
+}
+
+async function commitInlineEditAndBlur(): Promise<void> {
+  const uid = state.focusedUid;
+  if (!uid) return;
+  state.focusedUid = null;
+  await commitInlineEdit(uid);
+  render();
 }
 
 function getActiveCalendarName(): string | undefined {
@@ -613,6 +667,7 @@ function render(): void {
           categoryOrder: state.categoryOrder,
           conflicts: state.conflicts,
           hideCompleted: state.hideCompleted,
+          focusedUid: state.focusedUid,
           promptApiAvailability: state.promptApiAvailability,
           autoCategorizeProgress: state.autoCategorizeProgress,
         })
@@ -681,6 +736,15 @@ function render(): void {
   bindEvents();
   if (state.addingTask) {
     appRoot!.querySelector<HTMLInputElement>('#quick-add-summary')?.focus();
+  } else if (state.focusedUid) {
+    const inlineInput = appRoot!.querySelector<HTMLInputElement>(
+      `input[data-inline-uid="${CSS.escape(state.focusedUid)}"]`,
+    );
+    if (inlineInput && document.activeElement !== inlineInput) {
+      inlineInput.focus();
+      const len = inlineInput.value.length;
+      inlineInput.setSelectionRange(len, len);
+    }
   }
 }
 
@@ -811,6 +875,7 @@ function bindEvents(): void {
     state.conflicts = [];
     state.pendingCount = 0;
     state.editingUid = null;
+    state.focusedUid = null;
     state.autoCategorize = false;
     state.autoCategorizeProgress = null;
     state.missingConfigPath = null;
@@ -904,6 +969,22 @@ function bindEvents(): void {
       autoCategorizeAbort?.abort();
     });
 
+  // List: clear all completed tasks
+  appRoot!
+    .querySelector<HTMLButtonElement>('#clear-completed-btn')
+    ?.addEventListener('click', async () => {
+      if (!syncEngine) return;
+      const completed = state.tasks.filter((t) => t.status === 'COMPLETED');
+      if (completed.length === 0) return;
+      if (state.focusedUid && completed.some((t) => t.uid === state.focusedUid)) {
+        state.focusedUid = null;
+      }
+      for (const task of completed) {
+        await syncEngine.deleteTask(task.uid);
+      }
+      await flushOrScheduleSync();
+    });
+
   // List: hide completed toggle
   appRoot!
     .querySelector<HTMLInputElement>('#toggle-hide-completed')
@@ -935,7 +1016,7 @@ function bindEvents(): void {
     }
   });
 
-  // List: toggle completion checkboxes
+  // List: toggle completion checkboxes (only checkbox toggles completion)
   appRoot!.querySelectorAll<HTMLInputElement>('[data-toggle-uid]').forEach((checkbox) => {
     checkbox.addEventListener('change', async () => {
       const uid = checkbox.dataset.toggleUid;
@@ -945,12 +1026,53 @@ function bindEvents(): void {
     });
   });
 
-  // List: open editor
+  // List: tap task body to focus inline edit & reveal Edit / Delete actions
+  appRoot!.querySelectorAll<HTMLButtonElement>('[data-focus-uid]').forEach((btn) => {
+    btn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      const uid = btn.dataset.focusUid ?? null;
+      if (!uid) return;
+      if (state.focusedUid && state.focusedUid !== uid) {
+        await commitInlineEdit(state.focusedUid);
+      }
+      state.focusedUid = uid;
+      render();
+    });
+  });
+
+  // List: inline title editing (Enter saves & blurs)
+  appRoot!.querySelectorAll<HTMLInputElement>('[data-inline-uid]').forEach((input) => {
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        void commitInlineEditAndBlur();
+      }
+    });
+  });
+
+  // List: open full editor from focused row
   appRoot!.querySelectorAll<HTMLButtonElement>('[data-edit-uid]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      state.editingUid = btn.dataset.editUid ?? null;
+    btn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      const uid = btn.dataset.editUid ?? null;
+      if (!uid) return;
+      await commitInlineEdit(uid);
+      state.focusedUid = null;
+      state.editingUid = uid;
       state.confirmingDelete = false;
       render();
+    });
+  });
+
+  // List: one-tap delete from focused row
+  appRoot!.querySelectorAll<HTMLButtonElement>('[data-delete-uid]').forEach((btn) => {
+    btn.addEventListener('click', async (event) => {
+      event.stopPropagation();
+      const uid = btn.dataset.deleteUid;
+      if (!uid || !syncEngine) return;
+      state.focusedUid = null;
+      await syncEngine.deleteTask(uid);
+      await flushOrScheduleSync();
     });
   });
 

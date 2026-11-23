@@ -38,7 +38,7 @@ Because the PWA runs on a different origin than your Nextcloud server (for examp
 
 - **Switch lists & navigate:** Tap the menu button (`☰`) or the active list title in the single-line header to open the side drawer. From there you can switch between any of your CalDAV task lists or open **Categories** and **Settings**.
 - **Add tasks:** Tap the floating **`+`** button in the bottom-right corner to open the **Add Task** dialog (with summary, category picker, and optional notes).
-- **Complete & edit tasks:** Tap a checkbox to mark an item done, use **Hide done** to focus on remaining items, or tap **Edit** on any task to update its summary, categories, notes, priority, or delete it.
+- **Complete, edit & delete tasks:** Tap a checkbox to mark an item done (or **Clear done** to remove all checked items at once). Tap an item's title to edit it inline and reveal compact **Edit** (full details: category, notes, priority) and one-tap **Delete** buttons on the right.
 - **Sync status:** The header pill shows `Synced`, `Syncing…`, `Offline`, or `Sync error`, plus a `N pending` badge when offline changes are queued. Tap the pill anytime to trigger a manual sync.
 
 ### Per-List Categories

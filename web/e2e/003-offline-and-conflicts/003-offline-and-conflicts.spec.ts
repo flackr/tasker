@@ -50,6 +50,7 @@ test('US-003: User edits tasks offline and resolves a 412 conflict on reconnect'
     await page.getByRole('button', { name: 'Add', exact: true }).click();
     await expect(page.getByTestId('add-task-modal')).toBeHidden();
     await page.getByLabel('Mark Milk as completed').check();
+    await page.mouse.move(0, 0);
 
     await expect(page.getByTestId('pending-badge')).toContainText('2 pending');
 

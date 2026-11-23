@@ -86,6 +86,7 @@ test('US-002: User manages tasks and customizes category order', async ({ page }
     await page.getByLabel('Mark Apples as completed').check();
     await expect(page.locator('[data-task-uid="apples"]')).toHaveClass(/completed/);
     await expect(page.getByTestId('pending-badge')).toBeHidden();
+    await page.mouse.move(0, 0);
 
     await tester.step('added-and-toggled', {
       description: 'Quick-added Bakery item slots between Produce and Dairy, and Apples is checked off',
@@ -109,7 +110,16 @@ test('US-002: User manages tasks and customizes category order', async ({ page }
       ],
     });
 
-    // Edit Milk via Task Editor
+    // Unfocused & unhovered row hides Edit / Delete buttons; hovering or focusing reveals them
+    await expect(page.locator('[data-edit-uid="milk"]')).toBeHidden();
+    await expect(page.locator('[data-delete-uid="milk"]')).toBeHidden();
+    await page.locator('[data-task-uid="milk"]').hover();
+    await expect(page.locator('[data-edit-uid="milk"]')).toBeVisible();
+    await expect(page.locator('[data-delete-uid="milk"]')).toBeVisible();
+
+    // Tap Milk title to focus inline input, then open full Task Editor
+    await page.locator('[data-focus-uid="milk"]').click();
+    await expect(page.locator('input[data-inline-uid="milk"]')).toBeFocused();
     await page.locator('[data-edit-uid="milk"]').click();
     await expect(page.getByTestId('task-editor-modal')).toBeVisible();
     await page.locator('#task-editor-form input[name="summary"]').fill('Organic whole milk');
@@ -152,14 +162,15 @@ test('US-002: User manages tasks and customizes category order', async ({ page }
       ],
     });
 
-    // Return to Shopping list via side drawer and delete Apples
+    // Return to Shopping list via side drawer, hover/focus Apples, and delete with one click
     await page.getByTestId('menu-toggle-btn').click();
     await page.getByTestId('list-option-Shopping').click();
-    await page.locator('[data-edit-uid="apples"]').click();
-    await page.getByRole('button', { name: 'Delete' }).click();
-    await page.getByRole('button', { name: 'Confirm Delete' }).click();
+    await page.locator('[data-focus-uid="apples"]').click();
+    await page.locator('[data-delete-uid="apples"]').click();
     await expect(page.locator('[data-task-uid="apples"]')).toBeHidden();
     await expect(page.getByTestId('pending-badge')).toBeHidden();
+    // Move pointer away so resting list screenshot has no accidental hover state
+    await page.mouse.move(0, 0);
 
     await tester.step('reordered-and-deleted', {
       description: 'Task list reflects updated category order (Dairy first) and removed item is deleted on server',
@@ -181,6 +192,23 @@ test('US-002: User manages tasks and customizes category order', async ({ page }
         },
       ],
     });
+
+    // Inline title editing: click task title, type updated name, press Enter
+    await page.locator('[data-focus-uid="milk"]').click();
+    const inlineInput = page.locator('input[data-inline-uid="milk"]');
+    await expect(inlineInput).toBeFocused();
+    await inlineInput.fill('Organic 2% milk');
+    await inlineInput.press('Enter');
+    await expect(page.getByTestId('task-list')).toContainText('Organic 2% milk');
+    await expect(page.getByTestId('pending-badge')).toBeHidden();
+
+    // Clear done: check off Milk and clear all completed tasks in one click
+    await page.getByLabel('Mark Organic 2% milk as completed').check();
+    await expect(page.getByTestId('clear-completed-btn')).toContainText('Clear done (1)');
+    await page.getByTestId('clear-completed-btn').click();
+    await expect(page.locator('[data-task-uid="milk"]')).toBeHidden();
+    await expect(page.getByTestId('pending-badge')).toBeHidden();
+    expect(server.backend.getTasks('shopping')).toHaveLength(1);
 
     tester.generateDocs();
   } finally {

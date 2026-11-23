@@ -8,6 +8,7 @@ export interface ListViewProps {
   categoryOrder: string[];
   conflicts: SyncConflict[];
   hideCompleted: boolean;
+  focusedUid: string | null;
   promptApiAvailability: PromptApiAvailability;
   autoCategorizeProgress: string | null;
 }
@@ -63,6 +64,7 @@ export function renderListView({
   categoryOrder,
   conflicts,
   hideCompleted,
+  focusedUid,
   promptApiAvailability,
   autoCategorizeProgress,
 }: ListViewProps): string {
@@ -82,6 +84,11 @@ export function renderListView({
           ${
             canAutoCategorize && !autoCategorizeProgress && uncategorizedCount > 0
               ? `<button type="button" id="run-auto-categorize" class="btn-ghost btn-compact" data-testid="run-auto-categorize">Auto-categorize (${uncategorizedCount})</button>`
+              : ''
+          }
+          ${
+            completedCount > 0
+              ? `<button type="button" id="clear-completed-btn" class="btn-danger-outline btn-compact" data-testid="clear-completed-btn">Clear done (${completedCount})</button>`
               : ''
           }
           <label class="toggle-label">
@@ -105,7 +112,7 @@ export function renderListView({
       <div class="category-groups" data-testid="task-list">
         ${
           groups.length > 0
-            ? groups.map(renderCategoryGroup).join('')
+            ? groups.map((group) => renderCategoryGroup(group, focusedUid)).join('')
             : '<p class="empty">No items in this list yet. Tap + to add one.</p>'
         }
       </div>
@@ -203,30 +210,28 @@ function renderConflictBanners(conflicts: SyncConflict[]): string {
   `;
 }
 
-function renderCategoryGroup(group: CategoryGroup): string {
+function renderCategoryGroup(group: CategoryGroup, focusedUid: string | null): string {
   return `
     <div class="category-group" data-category="${escapeAttr(group.label)}">
       <h3 class="category-heading">${escapeHtml(group.label)}</h3>
       <ul class="task-list">
-        ${group.tasks.map(renderTaskItem).join('')}
+        ${group.tasks.map((task) => renderTaskItem(task, task.uid === focusedUid)).join('')}
       </ul>
     </div>
   `;
 }
 
-function renderTaskItem(task: Task): string {
+function renderTaskItem(task: Task, isFocused: boolean): string {
   const completed = task.status === 'COMPLETED';
   const classes = [
     'task',
     completed ? 'completed' : '',
     task.dirty ? 'dirty' : '',
+    isFocused ? 'focused' : '',
   ]
     .filter(Boolean)
     .join(' ');
 
-  const extraTags = task.categories.length
-    ? `<span class="categories">${task.categories.map(escapeHtml).join(', ')}</span>`
-    : '';
   const notes = task.description
     ? `<span class="task-notes">${escapeHtml(task.description)}</span>`
     : '';
@@ -234,24 +239,42 @@ function renderTaskItem(task: Task): string {
     ? '<span class="dirty-dot" title="Pending sync">Pending</span>'
     : '';
 
+  const mainContent = isFocused
+    ? `<div class="task-main">
+        <input
+          type="text"
+          class="task-inline-input"
+          data-inline-uid="${escapeAttr(task.uid)}"
+          value="${escapeAttr(task.summary)}"
+          aria-label="Edit task title"
+        />
+        ${notes}
+      </div>`
+    : `<button
+        type="button"
+        class="task-body"
+        data-focus-uid="${escapeAttr(task.uid)}"
+      >
+        <span class="task-summary">${escapeHtml(task.summary)}</span>
+        ${notes}
+      </button>`;
+
   return `
     <li class="${classes}" data-task-uid="${escapeAttr(task.uid)}">
-      <label class="task-check">
-        <input
-          type="checkbox"
-          data-toggle-uid="${escapeAttr(task.uid)}"
-          ${completed ? 'checked' : ''}
-          aria-label="Mark ${escapeAttr(task.summary)} as completed"
-        />
-        <span class="task-main">
-          <span class="task-summary">${escapeHtml(task.summary)}</span>
-          ${notes}
-        </span>
-      </label>
+      <input
+        type="checkbox"
+        class="task-checkbox"
+        data-toggle-uid="${escapeAttr(task.uid)}"
+        ${completed ? 'checked' : ''}
+        aria-label="Mark ${escapeAttr(task.summary)} as completed"
+      />
+      ${mainContent}
       <div class="task-meta">
-        ${extraTags}
         ${dirtyTag}
-        <button type="button" class="btn-ghost" data-edit-uid="${escapeAttr(task.uid)}">Edit</button>
+        <div class="task-actions">
+          <button type="button" class="btn-ghost btn-compact" data-edit-uid="${escapeAttr(task.uid)}">Edit</button>
+          <button type="button" class="btn-danger-outline btn-compact" data-delete-uid="${escapeAttr(task.uid)}">Delete</button>
+        </div>
       </div>
     </li>
   `;
