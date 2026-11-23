@@ -110,16 +110,24 @@ test('US-002: User manages tasks and customizes category order', async ({ page }
       ],
     });
 
-    // Unfocused & unhovered row hides Edit / Delete buttons; hovering or focusing reveals them
+    // Unfocused & unhovered row hides icon actions; hovering or focusing reveals them with ZERO height shift
+    const milkRow = page.locator('[data-task-uid="milk"]');
+    const restingBox = await milkRow.boundingBox();
     await expect(page.locator('[data-edit-uid="milk"]')).toBeHidden();
     await expect(page.locator('[data-delete-uid="milk"]')).toBeHidden();
-    await page.locator('[data-task-uid="milk"]').hover();
+
+    await milkRow.hover();
     await expect(page.locator('[data-edit-uid="milk"]')).toBeVisible();
     await expect(page.locator('[data-delete-uid="milk"]')).toBeVisible();
+    const hoveredBox = await milkRow.boundingBox();
+    expect(hoveredBox?.height).toBe(restingBox?.height);
 
-    // Tap Milk title to focus inline input, then open full Task Editor
+    // Tap Milk title to focus inline input (still zero height shift!), then open full Task Editor
     await page.locator('[data-focus-uid="milk"]').click();
     await expect(page.locator('input[data-inline-uid="milk"]')).toBeFocused();
+    const focusedBox = await milkRow.boundingBox();
+    expect(focusedBox?.height).toBe(restingBox?.height);
+
     await page.locator('[data-edit-uid="milk"]').click();
     await expect(page.getByTestId('task-editor-modal')).toBeVisible();
     await page.locator('#task-editor-form input[name="summary"]').fill('Organic whole milk');

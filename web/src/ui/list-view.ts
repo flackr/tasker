@@ -272,8 +272,28 @@ function renderTaskItem(task: Task, isFocused: boolean): string {
       <div class="task-meta">
         ${dirtyTag}
         <div class="task-actions">
-          <button type="button" class="btn-ghost btn-compact" data-edit-uid="${escapeAttr(task.uid)}">Edit</button>
-          <button type="button" class="btn-danger-outline btn-compact" data-delete-uid="${escapeAttr(task.uid)}">Delete</button>
+          <button
+            type="button"
+            class="task-icon-btn"
+            data-edit-uid="${escapeAttr(task.uid)}"
+            aria-label="Edit ${escapeAttr(task.summary)}"
+            title="Edit"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M11.3 2.7a1.5 1.5 0 0 1 2.1 2.1L5.6 12.6 2.5 13.5l.9-3.1 7.9-7.7Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="task-icon-btn task-icon-btn-danger"
+            data-delete-uid="${escapeAttr(task.uid)}"
+            aria-label="Delete ${escapeAttr(task.summary)}"
+            title="Delete"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+          </button>
         </div>
       </div>
     </li>
