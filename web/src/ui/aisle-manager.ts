@@ -50,8 +50,8 @@ function renderAisleRow(aisle: string, idx: number, total: number, isRenaming: b
     <li class="aisle-row" data-aisle-index="${idx}">
       <span class="aisle-name">${idx + 1}. ${escapeHtml(aisle)}</span>
       <div class="aisle-actions">
-        <button type="button" class="btn-ghost" data-move-up="${idx}" ${idx === 0 ? 'disabled' : ''} aria-label="Move ${escapeAttr(aisle)} up">↑</button>
-        <button type="button" class="btn-ghost" data-move-down="${idx}" ${idx === total - 1 ? 'disabled' : ''} aria-label="Move ${escapeAttr(aisle)} down">↓</button>
+        <button type="button" class="btn-ghost" data-move-up="${idx}" ${idx === 0 ? 'disabled' : ''} aria-label="Move ${escapeAttr(aisle)} up">Up</button>
+        <button type="button" class="btn-ghost" data-move-down="${idx}" ${idx === total - 1 ? 'disabled' : ''} aria-label="Move ${escapeAttr(aisle)} down">Down</button>
         <button type="button" class="btn-ghost" data-start-rename="${idx}">Rename</button>
         <button type="button" class="btn-danger-outline" data-delete-aisle="${idx}">Remove</button>
       </div>

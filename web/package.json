@@ -13,6 +13,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.5",
     "@tasker/core": "*",
     "idb": "^8.0.3"
   },

@@ -21,7 +21,7 @@ export function renderTaskEditor({
       <section class="panel modal-card">
         <div class="panel-header">
           <h2>Edit Item</h2>
-          <button type="button" id="editor-cancel-x" class="btn-ghost" aria-label="Close editor">✕</button>
+          <button type="button" id="editor-cancel-x" class="btn-ghost" aria-label="Close editor">Close</button>
         </div>
         <form id="task-editor-form" class="stack-form" data-uid="${escapeAttr(task.uid)}">
           <label>

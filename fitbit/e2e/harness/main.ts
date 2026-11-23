@@ -1,3 +1,6 @@
+import '@fontsource/inter/latin-400.css';
+import '@fontsource/inter/latin-600.css';
+import '@fontsource/inter/latin-700.css';
 // @ts-expect-error raw Vite import of Fitbit GUI XML
 import indexGuiXml from '../../resources/index.gui?raw';
 // @ts-expect-error JS watch app controller
@@ -113,7 +116,9 @@ function createBrowserFitbitDocument(root: HTMLElement, tileIds: string[]) {
       },
       set value(v: number) {
         row.dataset.checked = v ? '1' : '0';
-        boxEl.textContent = v ? '✓' : '';
+        boxEl.innerHTML = v
+          ? '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.5L6.5 12L13 4.5" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+          : '';
       },
       get onclick() {
         return clickHandler;

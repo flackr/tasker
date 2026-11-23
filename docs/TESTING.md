@@ -93,7 +93,7 @@ Each step via `tester.step(id, options)`:
 2. Captures a screenshot compared against `screenshots/{NNN}-{id}.png` with `maxDiffPixels: 0`.
 3. Records metadata and assertions so `tester.generateDocs()` keeps each scenario's `README.md` permanently in sync with the test.
 
-**Determinism:** `web/playwright.config.ts` launches Chromium with software rendering (`--disable-gpu`, `--use-gl=swiftshader`), disabled font hinting/subpixel positioning, fixed viewport, `deviceScaleFactor: 1`, and fixed locale/timezone (`en-US`, `America/New_York`).
+**Determinism:** Both `web/playwright.config.ts` and `fitbit/playwright.config.ts` launch Chromium with software rendering (`--disable-gpu`, `--use-gl=swiftshader`), disabled font hinting/subpixel positioning, fixed viewport, `deviceScaleFactor: 1`, and fixed locale/timezone (`en-US`, `America/New_York`). Both apps also bundle self-hosted `@fontsource/inter` (`latin` WOFF2) and use inline SVG for icons/checkmarks instead of `system-ui` or system symbol fonts so glyph rendering is pixel-identical across local machines and GitHub Actions `ubuntu-latest`.
 
 Running PWA E2E tests:
 
