@@ -1,4 +1,5 @@
 import type { CalendarInfo, Credentials } from '@tasker/core';
+import { isPromptApiUsable, type PromptApiAvailability } from '../ai/categorizer';
 import { escapeAttr, escapeHtml } from './html';
 
 export interface SettingsViewProps {
@@ -6,6 +7,23 @@ export interface SettingsViewProps {
   calendars: CalendarInfo[];
   connectionStatus: string;
   connectionState: 'idle' | 'connecting' | 'connected' | 'error' | 'offline';
+  autoCategorize: boolean;
+  promptApiAvailability: PromptApiAvailability;
+}
+
+function getPromptApiBadge(availability: PromptApiAvailability): { label: string; className: string } {
+  switch (availability) {
+    case 'available':
+      return { label: 'Local AI ready', className: 'conn-badge conn-connected' };
+    case 'downloadable':
+      return { label: 'Local AI downloadable', className: 'conn-badge conn-connecting' };
+    case 'downloading':
+      return { label: 'Downloading model…', className: 'conn-badge conn-connecting' };
+    case 'unavailable':
+      return { label: 'Local AI unavailable', className: 'conn-badge conn-idle' };
+    default:
+      return { label: 'Not supported by browser', className: 'conn-badge conn-idle' };
+  }
 }
 
 export function renderSettingsView({
@@ -13,6 +31,8 @@ export function renderSettingsView({
   calendars,
   connectionStatus,
   connectionState,
+  autoCategorize,
+  promptApiAvailability,
 }: SettingsViewProps): string {
   const badgeClass = `conn-badge conn-${connectionState}`;
   const badgeLabel =
@@ -25,6 +45,9 @@ export function renderSettingsView({
           : connectionState === 'error'
             ? 'Connection failed'
             : 'Not connected';
+
+  const aiUsable = isPromptApiUsable(promptApiAvailability);
+  const aiBadge = getPromptApiBadge(promptApiAvailability);
 
   return `
     <section class="panel" data-testid="settings-panel">
@@ -56,6 +79,30 @@ export function renderSettingsView({
         </div>
       </form>
       ${calendars.length > 0 ? renderCalendarPicker(calendars, credentials?.calendarHref) : ''}
+
+      <div class="settings-section" data-testid="ai-settings-section">
+        <div class="panel-header">
+          <h3>Auto-Categorize (On-Device AI)</h3>
+          <span class="${aiBadge.className}" data-testid="ai-availability-badge">${aiBadge.label}</span>
+        </div>
+        <label class="checkbox-setting">
+          <input
+            type="checkbox"
+            id="toggle-auto-categorize"
+            data-testid="auto-categorize-toggle"
+            ${autoCategorize ? 'checked' : ''}
+            ${aiUsable ? '' : 'disabled'}
+          />
+          <span>Automatically step through uncategorized tasks using the browser Prompt API and assign matching categories</span>
+        </label>
+        <p class="muted">
+          ${
+            aiUsable
+              ? 'Runs locally in your browser using the Web Prompt API (LanguageModel) — task data never leaves your device.'
+              : 'Requires a browser with the Web Prompt API (LanguageModel) enabled.'
+          }
+        </p>
+      </div>
     </section>
   `;
 }

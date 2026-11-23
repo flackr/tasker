@@ -10,10 +10,12 @@ import type {
 } from '@tasker/core';
 import { getTaskerDb } from './index';
 
-const AISLES_KEY = 'aisles';
+const CATEGORIES_KEY = 'categories';
+const LEGACY_AISLES_KEY = 'aisles';
 const CONFIG_KEY = 'config';
+const AUTO_CATEGORIZE_KEY = 'autoCategorize';
 
-export const DEFAULT_AISLES: string[] = [
+export const DEFAULT_CATEGORIES: string[] = [
   'Produce',
   'Bakery',
   'Deli & Meat',
@@ -89,21 +91,35 @@ export class IndexedDbSyncStorage implements SyncStorage {
   };
 }
 
-export async function loadAisleOrder(): Promise<string[]> {
+export async function loadCategoryOrder(): Promise<string[]> {
   const db = await getTaskerDb();
-  const stored = await db.get('settings', AISLES_KEY);
-  return Array.isArray(stored) ? stored : DEFAULT_AISLES.slice();
+  const stored = await db.get('settings', CATEGORIES_KEY);
+  if (Array.isArray(stored)) return stored;
+  const legacy = await db.get('settings', LEGACY_AISLES_KEY);
+  if (Array.isArray(legacy)) return legacy;
+  return DEFAULT_CATEGORIES.slice();
 }
 
-export async function saveAisleOrder(aisles: string[]): Promise<void> {
+export async function saveCategoryOrder(categories: string[]): Promise<void> {
   const db = await getTaskerDb();
-  await db.put('settings', aisles.slice(), AISLES_KEY);
+  await db.put('settings', categories.slice(), CATEGORIES_KEY);
+}
+
+export async function loadAutoCategorize(): Promise<boolean> {
+  const db = await getTaskerDb();
+  const stored = await db.get('settings', AUTO_CATEGORIZE_KEY);
+  return stored === true;
+}
+
+export async function saveAutoCategorize(enabled: boolean): Promise<void> {
+  const db = await getTaskerDb();
+  await db.put('settings', enabled, AUTO_CATEGORIZE_KEY);
 }
 
 export async function loadTaskerConfig(): Promise<TaskerConfig | undefined> {
   const db = await getTaskerDb();
   const stored = await db.get('settings', CONFIG_KEY);
-  if (stored && !Array.isArray(stored)) {
+  if (stored && typeof stored === 'object' && !Array.isArray(stored)) {
     return stored;
   }
   return undefined;

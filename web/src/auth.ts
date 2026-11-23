@@ -1,12 +1,13 @@
 import {
   createBasicAuthHeader as coreCreateBasicAuthHeader,
   createWebDavClient,
+  resolveConfiguredCategories,
   type Credentials,
   type FetchLike,
   type TaskerConfig,
 } from '@tasker/core';
 import { getTaskerDb } from './db/index';
-import { clearAllLocalData, saveAisleOrder, saveTaskerConfig } from './db/storage';
+import { clearAllLocalData, saveCategoryOrder, saveTaskerConfig } from './db/storage';
 
 const CREDENTIALS_KEY = 'default';
 
@@ -30,7 +31,7 @@ export async function clearCredentials(): Promise<void> {
 
 /**
  * Fetches `tasker-config.json` from the user-configured WebDAV path when set,
- * persisting discovered aisle order and preferences to IndexedDB.
+ * persisting discovered category order and preferences to IndexedDB.
  */
 export async function bootstrapRemoteConfig(
   credentials: Credentials,
@@ -43,8 +44,9 @@ export async function bootstrapRemoteConfig(
     const webdav = createWebDavClient(credentials, fetchImpl ? { fetch: fetchImpl } : undefined);
     const config = await webdav.getJsonFile<TaskerConfig>(configPath);
     await saveTaskerConfig(config);
-    if (Array.isArray(config.aisles) && config.aisles.length > 0) {
-      await saveAisleOrder(config.aisles);
+    const categories = resolveConfiguredCategories(config);
+    if (categories && categories.length > 0) {
+      await saveCategoryOrder(categories);
     }
     return config;
   } catch {

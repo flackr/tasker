@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { sortTasksByAisle } from './aisles.js';
+import { sortTasksByCategory } from './categories.js';
 import type { CompactTask } from './types.js';
 
-describe('sortTasksByAisle', () => {
-  const aisleOrder = ['Produce', 'Bakery', 'Dairy'];
+describe('sortTasksByCategory', () => {
+  const categoryOrder = ['Produce', 'Bakery', 'Dairy'];
 
-  it('orders tasks by configured aisle order and places uncategorized items last', () => {
+  it('orders tasks by configured category order and places uncategorized items last', () => {
     const tasks: CompactTask[] = [
       { uid: '1', summary: 'Milk', categories: ['Dairy'], completed: false },
       { uid: '2', summary: 'Batteries', categories: [], completed: false },
@@ -14,7 +14,7 @@ describe('sortTasksByAisle', () => {
       { uid: '5', summary: 'Bananas', categories: ['Produce'], completed: false },
     ];
 
-    const sorted = sortTasksByAisle(tasks, aisleOrder);
+    const sorted = sortTasksByCategory(tasks, categoryOrder);
     expect(sorted.map((t) => t.summary)).toEqual([
       'Apples',
       'Bananas',
@@ -24,13 +24,13 @@ describe('sortTasksByAisle', () => {
     ]);
   });
 
-  it('uses the earliest matching aisle when a task has multiple categories', () => {
+  it('uses the earliest matching category when a task has multiple categories', () => {
     const tasks: CompactTask[] = [
       { uid: '1', summary: 'Cheese', categories: ['Dairy'], completed: false },
       { uid: '2', summary: 'Herb Bread', categories: ['Dairy', 'Bakery'], completed: false },
     ];
 
-    const sorted = sortTasksByAisle(tasks, aisleOrder);
+    const sorted = sortTasksByCategory(tasks, categoryOrder);
     expect(sorted.map((t) => t.summary)).toEqual(['Herb Bread', 'Cheese']);
   });
 
@@ -40,7 +40,7 @@ describe('sortTasksByAisle', () => {
       { uid: '2', summary: 'Apples', categories: ['Produce'], completed: false },
     ];
 
-    const sorted = sortTasksByAisle(tasks, aisleOrder);
+    const sorted = sortTasksByCategory(tasks, categoryOrder);
     expect(sorted).not.toBe(tasks);
     expect(tasks[0].summary).toBe('Milk');
   });

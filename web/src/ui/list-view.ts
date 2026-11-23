@@ -1,23 +1,26 @@
 import type { SyncConflict, Task } from '@tasker/core';
-import { sortTasksByAisle } from '@tasker/core/watch';
+import { sortTasksByCategory } from '@tasker/core/watch';
+import { isPromptApiUsable, type PromptApiAvailability } from '../ai/categorizer';
 import { escapeAttr, escapeHtml } from './html';
 
 export interface ListViewProps {
   tasks: Task[];
-  aisleOrder: string[];
+  categoryOrder: string[];
   conflicts: SyncConflict[];
   statusMessage: string;
   hideCompleted: boolean;
   calendarName?: string;
+  promptApiAvailability: PromptApiAvailability;
+  autoCategorizeProgress: string | null;
 }
 
-interface AisleGroup {
+interface CategoryGroup {
   label: string;
   tasks: Task[];
 }
 
-function resolvePrimaryAisle(task: Task, aisleOrder: string[]): string {
-  const normalizedOrder = aisleOrder.map((a) => a.trim().toLowerCase());
+function resolvePrimaryCategory(task: Task, categoryOrder: string[]): string {
+  const normalizedOrder = categoryOrder.map((c) => c.trim().toLowerCase());
   let bestIdx = normalizedOrder.length;
   let bestLabel = '';
 
@@ -25,22 +28,22 @@ function resolvePrimaryAisle(task: Task, aisleOrder: string[]): string {
     const idx = normalizedOrder.indexOf(cat.trim().toLowerCase());
     if (idx !== -1 && idx < bestIdx) {
       bestIdx = idx;
-      bestLabel = aisleOrder[idx];
+      bestLabel = categoryOrder[idx];
     }
   }
 
   if (bestLabel) return bestLabel;
   if (task.categories.length > 0) return task.categories[0];
-  return 'Other';
+  return 'Uncategorized';
 }
 
-function groupTasksByAisle(tasks: Task[], aisleOrder: string[]): AisleGroup[] {
-  const sorted = sortTasksByAisle(tasks, aisleOrder);
-  const groups: AisleGroup[] = [];
-  const groupMap = new Map<string, AisleGroup>();
+function groupTasksByCategory(tasks: Task[], categoryOrder: string[]): CategoryGroup[] {
+  const sorted = sortTasksByCategory(tasks, categoryOrder);
+  const groups: CategoryGroup[] = [];
+  const groupMap = new Map<string, CategoryGroup>();
 
   for (const task of sorted) {
-    const label = resolvePrimaryAisle(task, aisleOrder);
+    const label = resolvePrimaryCategory(task, categoryOrder);
     let group = groupMap.get(label);
     if (!group) {
       group = { label, tasks: [] };
@@ -55,22 +58,26 @@ function groupTasksByAisle(tasks: Task[], aisleOrder: string[]): AisleGroup[] {
 
 export function renderListView({
   tasks,
-  aisleOrder,
+  categoryOrder,
   conflicts,
   statusMessage,
   hideCompleted,
   calendarName,
+  promptApiAvailability,
+  autoCategorizeProgress,
 }: ListViewProps): string {
   const visibleTasks = hideCompleted
     ? tasks.filter((t) => t.status !== 'COMPLETED')
     : tasks;
   const completedCount = tasks.filter((t) => t.status === 'COMPLETED').length;
-  const groups = groupTasksByAisle(visibleTasks, aisleOrder);
+  const uncategorizedCount = tasks.filter((t) => t.categories.length === 0).length;
+  const groups = groupTasksByCategory(visibleTasks, categoryOrder);
+  const canAutoCategorize = isPromptApiUsable(promptApiAvailability) && categoryOrder.length > 0;
 
-  const aisleOptions = [
+  const categoryOptions = [
     '<option value="">Uncategorized</option>',
-    ...aisleOrder.map(
-      (aisle) => `<option value="${escapeAttr(aisle)}">${escapeHtml(aisle)}</option>`,
+    ...categoryOrder.map(
+      (cat) => `<option value="${escapeAttr(cat)}">${escapeHtml(cat)}</option>`,
     ),
   ].join('');
 
@@ -78,16 +85,30 @@ export function renderListView({
     <section class="panel" data-testid="list-panel">
       <div class="panel-header">
         <div>
-          <h2>${escapeHtml(calendarName || 'Grocery List')}</h2>
+          <h2>${escapeHtml(calendarName || 'Task List')}</h2>
           <p class="status status-inline" data-testid="status">${escapeHtml(statusMessage)}</p>
         </div>
         <div class="list-controls">
+          ${
+            canAutoCategorize && !autoCategorizeProgress && uncategorizedCount > 0
+              ? `<button type="button" id="run-auto-categorize" class="btn-ghost" data-testid="run-auto-categorize">Auto-categorize (${uncategorizedCount})</button>`
+              : ''
+          }
           <label class="toggle-label">
             <input type="checkbox" id="toggle-hide-completed" ${hideCompleted ? 'checked' : ''} />
             <span>Hide done (${completedCount})</span>
           </label>
         </div>
       </div>
+
+      ${
+        autoCategorizeProgress
+          ? `<div class="ai-progress-banner" role="status" data-testid="ai-progress-banner">
+              <span>${escapeHtml(autoCategorizeProgress)}</span>
+              <button type="button" id="stop-auto-categorize" class="btn-ghost">Stop</button>
+            </div>`
+          : ''
+      }
 
       ${conflicts.length > 0 ? renderConflictBanners(conflicts) : ''}
 
@@ -96,17 +117,17 @@ export function renderListView({
           name="summary"
           type="text"
           required
-          placeholder="Add grocery item…"
-          aria-label="New grocery item"
+          placeholder="Add task…"
+          aria-label="New task"
         />
-        <select name="aisle" aria-label="Aisle">${aisleOptions}</select>
+        <select name="category" aria-label="Category">${categoryOptions}</select>
         <button type="submit">Add</button>
       </form>
 
-      <div class="aisle-groups" data-testid="task-list">
+      <div class="category-groups" data-testid="task-list">
         ${
           groups.length > 0
-            ? groups.map(renderAisleGroup).join('')
+            ? groups.map(renderCategoryGroup).join('')
             : '<p class="empty">No items in this list yet.</p>'
         }
       </div>
@@ -146,10 +167,10 @@ function renderConflictBanners(conflicts: SyncConflict[]): string {
   `;
 }
 
-function renderAisleGroup(group: AisleGroup): string {
+function renderCategoryGroup(group: CategoryGroup): string {
   return `
-    <div class="aisle-group" data-aisle="${escapeAttr(group.label)}">
-      <h3 class="aisle-heading">${escapeHtml(group.label)}</h3>
+    <div class="category-group" data-category="${escapeAttr(group.label)}">
+      <h3 class="category-heading">${escapeHtml(group.label)}</h3>
       <ul class="task-list">
         ${group.tasks.map(renderTaskItem).join('')}
       </ul>

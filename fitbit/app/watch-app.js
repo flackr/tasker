@@ -3,7 +3,7 @@ import {
   applyOptimisticToggle,
   createChunkReassembler,
   reconcileWatchTasks,
-  sortTasksByAisle,
+  sortTasksByCategory,
 } from "@tasker/core/watch";
 
 var LISTS_INDEX_FILE = "tasker-lists.json";
@@ -63,10 +63,15 @@ function writeJsonFile(fs, filename, data) {
 function readListsIndex(fs) {
   var data = readJsonFile(fs, LISTS_INDEX_FILE);
   if (data) {
+    var order = Array.isArray(data.categoryOrder)
+      ? data.categoryOrder
+      : Array.isArray(data.aisleOrder)
+        ? data.aisleOrder
+        : [];
     return {
       calendars: Array.isArray(data.calendars) ? data.calendars : [],
       activeCalendarHref: data.activeCalendarHref,
-      aisleOrder: Array.isArray(data.aisleOrder) ? data.aisleOrder : [],
+      categoryOrder: order,
     };
   }
   // Backwards-compatible migration from single-file cache
@@ -82,7 +87,11 @@ function readListsIndex(fs) {
     return {
       calendars: [{ href: legacy.calendarHref, displayName: "Tasks" }],
       activeCalendarHref: legacy.calendarHref,
-      aisleOrder: Array.isArray(legacy.aisleOrder) ? legacy.aisleOrder : [],
+      categoryOrder: Array.isArray(legacy.categoryOrder)
+        ? legacy.categoryOrder
+        : Array.isArray(legacy.aisleOrder)
+          ? legacy.aisleOrder
+          : [],
     };
   }
   return null;
@@ -92,7 +101,7 @@ function writeListsIndex(fs, state) {
   writeJsonFile(fs, LISTS_INDEX_FILE, {
     calendars: state.calendars,
     activeCalendarHref: state.activeCalendarHref,
-    aisleOrder: state.aisleOrder,
+    categoryOrder: state.categoryOrder,
   });
 }
 
@@ -118,7 +127,7 @@ function writeListStore(fs, calendarHref, tasks, pending, lastSyncedAt) {
   });
 }
 
-function getAisleLabel(task) {
+function getCategoryLabel(task) {
   if (task && task.categories && task.categories.length > 0) {
     return task.categories[0];
   }
@@ -156,7 +165,7 @@ export function createWatchApp(options) {
     activeCalendarHref: undefined,
     items: [],
     pending: [],
-    aisleOrder: [],
+    categoryOrder: [],
     lastSyncedAt: undefined,
     syncing: false,
     error: "",
@@ -266,13 +275,13 @@ export function createWatchApp(options) {
       }
       tileList.style.display = "inline";
       var checkbox = tile.getElementById("task-checkbox");
-      var aisleEl = tile.getElementById("item-aisle");
+      var categoryEl = tile.getElementById("item-category");
       var item = state.items[i];
 
       checkbox.text = item.summary;
       checkbox.value = item.completed ? 1 : 0;
-      if (aisleEl) {
-        aisleEl.text = getAisleLabel(item);
+      if (categoryEl) {
+        categoryEl.text = getCategoryLabel(item);
       }
 
       (function (index) {
@@ -347,7 +356,7 @@ export function createWatchApp(options) {
 
     var stored = readListStore(fs, calendarHref);
     if (stored) {
-      state.items = sortTasksByAisle(stored.tasks, state.aisleOrder);
+      state.items = sortTasksByCategory(stored.tasks, state.categoryOrder);
       state.pending = stored.pending;
       state.lastSyncedAt = stored.lastSyncedAt;
     } else {
@@ -438,8 +447,8 @@ export function createWatchApp(options) {
       if (Array.isArray(data.calendars)) {
         state.calendars = data.calendars.slice();
       }
-      if (Array.isArray(data.aisleOrder)) {
-        state.aisleOrder = data.aisleOrder.slice();
+      if (Array.isArray(data.categoryOrder)) {
+        state.categoryOrder = data.categoryOrder.slice();
       }
 
       // If we are on the lists screen on initial boot (user did not explicitly go back),
@@ -478,8 +487,8 @@ export function createWatchApp(options) {
       if (!payload) return;
 
       var targetHref = payload.calendarHref || state.activeCalendarHref;
-      if (Array.isArray(payload.aisleOrder)) {
-        state.aisleOrder = payload.aisleOrder.slice();
+      if (Array.isArray(payload.categoryOrder)) {
+        state.categoryOrder = payload.categoryOrder.slice();
         persistIndex();
       }
 
@@ -489,7 +498,7 @@ export function createWatchApp(options) {
         : readListStore(fs, targetHref) || { tasks: [], pending: [] };
 
       var reconciled = reconcileWatchTasks(payload.tasks, existingStore.pending);
-      var sorted = sortTasksByAisle(reconciled.tasks, state.aisleOrder);
+      var sorted = sortTasksByCategory(reconciled.tasks, state.categoryOrder);
       var syncedAt = nowFn();
 
       writeListStore(fs, targetHref, sorted, reconciled.pending, syncedAt);
@@ -576,13 +585,13 @@ export function createWatchApp(options) {
     var index = readListsIndex(fs);
     if (index) {
       state.calendars = index.calendars;
-      state.aisleOrder = index.aisleOrder;
+      state.categoryOrder = index.categoryOrder;
       state.activeCalendarHref = index.activeCalendarHref;
       if (state.activeCalendarHref) {
         state.view = "tasks";
         var storedList = readListStore(fs, state.activeCalendarHref);
         if (storedList) {
-          state.items = sortTasksByAisle(storedList.tasks, state.aisleOrder);
+          state.items = sortTasksByCategory(storedList.tasks, state.categoryOrder);
           state.pending = storedList.pending;
           state.lastSyncedAt = storedList.lastSyncedAt;
         }
@@ -613,7 +622,7 @@ export function createWatchApp(options) {
         activeCalendarName: getActiveCalendarName(),
         items: state.items.slice(),
         pending: state.pending.slice(),
-        aisleOrder: state.aisleOrder.slice(),
+        categoryOrder: state.categoryOrder.slice(),
         status: computeStatusText(),
       };
     },

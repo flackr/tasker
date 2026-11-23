@@ -24,7 +24,7 @@
    - [Watch-side Caching and Sync](#watch-side-caching-and-sync)
 7. [Data Model](#data-model)
    - [Task (VTODO)](#task-vtodo)
-   - [Aisle / Category](#aisle--category)
+   - [Category Order & Auto-Categorization](#category-order--auto-categorization)
    - [Recipe (Markdown over WebDAV)](#recipe-markdown-over-webdav)
 8. [Sync Protocol](#sync-protocol)
 9. [Security Considerations](#security-considerations)
@@ -95,7 +95,7 @@ The Fitbit Versa 2 (`mira`) requires `@fitbit/sdk ~4.3.0`, whose bundler (`rollu
 
 | Entry Point | Target | Consumers | Contents |
 |---|---|---|---|
-| `@tasker/core/watch` | ES5 ESM (`lib: ["ES5"]`) | Fitbit Watch App, Fitbit Companion, PWA | `CompactTask`, Watch↔Companion protocol types, `sortTasksByAisle`, watch-side merge/reconciliation helpers |
+| `@tasker/core/watch` | ES5 ESM (`lib: ["ES5"]`) | Fitbit Watch App, Fitbit Companion, PWA | `CompactTask`, Watch↔Companion protocol types, `sortTasksByCategory`, watch-side merge/reconciliation helpers |
 | `@tasker/core` | ES2015 ESM (no DOM/Node globals) | PWA, Fitbit Companion, Vitest | Canonical `Task` & config models, lossless `VTODO` parser/serializer, runtime-agnostic XML + CalDAV/WebDAV clients (injectable `fetch`), storage-agnostic `TaskStore` / `SyncQueueStore` / `SyncEngine` & conflict resolution |
 
 Each platform provides a thin storage and UI adapter:
@@ -325,14 +325,14 @@ All messages between Watch App and Companion App use the Fitbit **Messaging API*
 // Watch → Companion: request available VTODO task lists
 { type: "FETCH_LISTS" }
 
-// Companion → Watch: deliver available lists + shared aisle order
-{ type: "LISTS_PAYLOAD"; calendars: CompactCalendar[]; defaultCalendarHref?: string; aisleOrder?: string[] }
+// Companion → Watch: deliver available lists + shared category order
+{ type: "LISTS_PAYLOAD"; calendars: CompactCalendar[]; defaultCalendarHref?: string; categoryOrder?: string[] }
 
 // Watch → Companion: request a specific task list
 { type: "FETCH_TASKS"; calendarHref?: string }
 
 // Companion → Watch: deliver a task list (or chunked via TASKS_CHUNK)
-{ type: "TASKS_PAYLOAD"; tasks: CompactTask[]; calendarHref?: string; aisleOrder?: string[] }
+{ type: "TASKS_PAYLOAD"; tasks: CompactTask[]; calendarHref?: string; categoryOrder?: string[] }
 
 // Watch → Companion: toggle a task's completion (includes watch-side timestamp)
 { type: "UPDATE_TASK"; uid: string; completed: boolean; calendarHref?: string; updatedAt?: number }
@@ -363,7 +363,7 @@ interface CompactTask {
 
 The watch persists both the list catalog and each loaded list's tasks + unsynced local toggles using the **Fitbit File Storage API** (`fs.writeFileSync` / `fs.readFileSync`):
 
-- `tasker-lists.json` — stores `{ calendars, activeCalendarHref, aisleOrder }`.
+- `tasker-lists.json` — stores `{ calendars, activeCalendarHref, categoryOrder }`.
 - `tasker-list-<hash>.json` — one file per loaded calendar storing `{ calendarHref, tasks, pending, lastSyncedAt }`, where `pending` records unsynced local toggles `{ uid, completed, updatedAt }`.
 
 On startup:
@@ -418,9 +418,11 @@ interface Task {
 }
 ```
 
-### Aisle / Category
+### Category Order & Auto-Categorization
 
-CalDAV `CATEGORIES` values are used as aisle labels. The app maintains a local ordered list of aisle names (stored in IndexedDB) that controls the sort order of items in the grocery view. Users can add, rename, and reorder aisles from the Settings screen.
+CalDAV `CATEGORIES` values are used to tag and organize tasks (for example, store sections for grocery lists, or project areas for general tasks). The app maintains an ordered list of category names (stored locally in IndexedDB and optionally synced via `tasker-config.json`'s `categories` array — with backwards-compatible fallback for legacy `aisles`) that controls grouping and sort order in both the PWA and Fitbit watch. Users can add, rename, reorder, and remove categories from the **Categories** tab.
+
+When the user's browser supports the on-device [Web Prompt API](https://developer.mozilla.org/en-US/docs/Web/API/Prompt_API) (`LanguageModel`), the PWA offers an **Auto-Categorize** setting in Settings (plus an on-demand trigger on the task list). When enabled, the PWA steps one by one through uncategorized tasks (`categories.length === 0`) and prompts the local on-device model (constrained to the configured categories via JSON Schema `responseConstraint`, or `null` if none fit) without sending any task data to an external server.
 
 ### Recipe (Markdown over WebDAV)
 

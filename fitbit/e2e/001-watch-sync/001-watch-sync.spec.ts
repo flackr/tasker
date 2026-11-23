@@ -23,11 +23,11 @@ function makeIcs(
   return lines.join('\r\n');
 }
 
-test('FIT-001: Versa 2 multi-list selection, aisle-sorted tasks, offline fs restart, and list switching', async ({ page }, testInfo) => {
+test('FIT-001: Versa 2 multi-list selection, category-sorted tasks, offline fs restart, and list switching', async ({ page }, testInfo) => {
   const tester = new TestStepHelper(page, testInfo);
   tester.setMetadata(
     'Fitbit Versa 2 Multi-List & Offline Sync',
-    'As a Versa 2 user, I want to pick between my CalDAV task lists, check off items sorted by aisle online or offline, survive restarts from local watch storage, and go back to switch lists.',
+    'As a Versa 2 user, I want to pick between my CalDAV task lists, check off items sorted by category online or offline, survive restarts from local watch storage, and go back to switch lists.',
   );
 
   const server = await startMockCalDavServer({
@@ -48,7 +48,7 @@ test('FIT-001: Versa 2 multi-list selection, aisle-sorted tasks, offline fs rest
       {
         path: 'Notes/tasker-config.json',
         content: JSON.stringify({
-          aisles: ['Produce', 'Bakery', 'Dairy'],
+          categories: ['Produce', 'Bakery', 'Dairy'],
         }),
         contentType: 'application/json',
       },
@@ -90,7 +90,7 @@ test('FIT-001: Versa 2 multi-list selection, aisle-sorted tasks, offline fs rest
     await expect(page.getByTestId('watch-status')).toHaveText('3 left');
 
     await tester.step('initial-sync', {
-      description: 'Selecting Shopping loads tasks sorted by aisle walk order (Produce → Bakery → Dairy)',
+      description: 'Selecting Shopping loads tasks sorted by category order (Produce → Bakery → Dairy)',
       verifications: [
         {
           spec: 'Back (Lists) button is visible and status shows 3 left',
@@ -100,7 +100,7 @@ test('FIT-001: Versa 2 multi-list selection, aisle-sorted tasks, offline fs rest
           },
         },
         {
-          spec: 'Items appear in aisle walk order: Apples, Sourdough, Milk',
+          spec: 'Items appear in category order: Apples, Sourdough, Milk',
           check: async () => {
             await expect(page.getByTestId('watch-item-0')).toContainText('Apples');
             await expect(page.getByTestId('watch-item-1')).toContainText('Sourdough');

@@ -1,6 +1,6 @@
 # Test: Fitbit Versa 2 Multi-List & Offline Sync
 
-As a Versa 2 user, I want to pick between my CalDAV task lists, check off items sorted by aisle online or offline, survive restarts from local watch storage, and go back to switch lists.
+As a Versa 2 user, I want to pick between my CalDAV task lists, check off items sorted by category online or offline, survive restarts from local watch storage, and go back to switch lists.
 
 ## Versa 2 shows available VTODO task lists (filtering out VEVENT-only calendars)
 
@@ -12,13 +12,13 @@ As a Versa 2 user, I want to pick between my CalDAV task lists, check off items 
 
 ---
 
-## Selecting Shopping loads tasks sorted by aisle walk order (Produce → Bakery → Dairy)
+## Selecting Shopping loads tasks sorted by category order (Produce → Bakery → Dairy)
 
-![Selecting Shopping loads tasks sorted by aisle walk order (Produce → Bakery → Dairy)](./screenshots/001-initial-sync.png)
+![Selecting Shopping loads tasks sorted by category order (Produce → Bakery → Dairy)](./screenshots/001-initial-sync.png)
 
 **Verifications:**
 - [x] Back (Lists) button is visible and status shows 3 left
-- [x] Items appear in aisle walk order: Apples, Sourdough, Milk
+- [x] Items appear in category order: Apples, Sourdough, Milk
 
 ---
 

@@ -5,13 +5,13 @@ export interface ChunkOptions {
   maxBytes?: number;
   transferId?: string;
   calendarHref?: string;
-  aisleOrder?: string[];
+  categoryOrder?: string[];
 }
 
 export interface ReassembledTasksPayload {
   tasks: CompactTask[];
   calendarHref?: string;
-  aisleOrder?: string[];
+  categoryOrder?: string[];
 }
 
 export interface ChunkReassembler {
@@ -56,14 +56,14 @@ export function chunkTasksPayload(
 ): CompanionToWatchMessage[] {
   var maxBytes = options && options.maxBytes !== undefined ? options.maxBytes : 900;
   var calendarHref = options ? options.calendarHref : undefined;
-  var aisleOrder = options ? options.aisleOrder : undefined;
+  var categoryOrder = options ? options.categoryOrder : undefined;
 
   var single: CompanionToWatchMessage = {
     type: 'TASKS_PAYLOAD',
     tasks: tasks.slice(),
   };
   if (calendarHref !== undefined) single.calendarHref = calendarHref;
-  if (aisleOrder !== undefined) single.aisleOrder = aisleOrder.slice();
+  if (categoryOrder !== undefined) single.categoryOrder = categoryOrder.slice();
 
   if (tasks.length === 0 || utf8ByteLength(JSON.stringify(single)) <= maxBytes) {
     return [single];
@@ -84,7 +84,7 @@ export function chunkTasksPayload(
     };
     if (buckets.length === 0) {
       if (calendarHref !== undefined) probe.calendarHref = calendarHref;
-      if (aisleOrder !== undefined) probe.aisleOrder = aisleOrder.slice();
+      if (categoryOrder !== undefined) probe.categoryOrder = categoryOrder.slice();
     }
 
     if (current.length > 0 && utf8ByteLength(JSON.stringify(probe)) > maxBytes) {
@@ -109,7 +109,7 @@ export function chunkTasksPayload(
     };
     if (j === 0) {
       if (calendarHref !== undefined) chunk.calendarHref = calendarHref;
-      if (aisleOrder !== undefined) chunk.aisleOrder = aisleOrder.slice();
+      if (categoryOrder !== undefined) chunk.categoryOrder = categoryOrder.slice();
     }
     messages.push(chunk);
   }
@@ -126,7 +126,7 @@ export function createChunkReassembler(): ChunkReassembler {
   var receivedCount = 0;
   var chunks: { [index: number]: CompactTask[] } = {};
   var calendarHref: string | undefined = undefined;
-  var aisleOrder: string[] | undefined = undefined;
+  var categoryOrder: string[] | undefined = undefined;
 
   function reset(): void {
     activeTransferId = null;
@@ -134,7 +134,7 @@ export function createChunkReassembler(): ChunkReassembler {
     receivedCount = 0;
     chunks = {};
     calendarHref = undefined;
-    aisleOrder = undefined;
+    categoryOrder = undefined;
   }
 
   function accept(message: CompanionToWatchMessage): ReassembledTasksPayload | null {
@@ -146,7 +146,7 @@ export function createChunkReassembler(): ChunkReassembler {
       return {
         tasks: message.tasks ? message.tasks.slice() : [],
         calendarHref: message.calendarHref,
-        aisleOrder: message.aisleOrder ? message.aisleOrder.slice() : undefined,
+        categoryOrder: message.categoryOrder ? message.categoryOrder.slice() : undefined,
       };
     }
     if (message.type !== 'TASKS_CHUNK') {
@@ -169,8 +169,8 @@ export function createChunkReassembler(): ChunkReassembler {
     if (message.calendarHref !== undefined) {
       calendarHref = message.calendarHref;
     }
-    if (message.aisleOrder !== undefined) {
-      aisleOrder = message.aisleOrder.slice();
+    if (message.categoryOrder !== undefined) {
+      categoryOrder = message.categoryOrder.slice();
     }
 
     if (chunks[message.chunkIndex] === undefined) {
@@ -195,7 +195,7 @@ export function createChunkReassembler(): ChunkReassembler {
     var result: ReassembledTasksPayload = {
       tasks: allTasks,
       calendarHref: calendarHref,
-      aisleOrder: aisleOrder,
+      categoryOrder: categoryOrder,
     };
     reset();
     return result;

@@ -28,7 +28,7 @@
       <use id="task-checkbox" href="#checkbox-tile" class="checkbox-tile">
         <set id="summary" href="header/text" attributeName="text-buffer" to="Placeholder" />
       </use>
-      <text id="item-aisle" x="14" y="52" text-length="32" font-size="14" fill="#60a5fa" pointer-events="none"></text>
+      <text id="item-category" x="14" y="52" text-length="32" font-size="14" fill="#60a5fa" pointer-events="none"></text>
 
       <rect id="tile-divider-bottom" y="56" width="100%" height="2" fill="#1f2937" />
     </use>

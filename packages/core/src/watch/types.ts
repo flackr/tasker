@@ -50,7 +50,7 @@ export interface TasksChunkMessage {
   totalChunks: number;
   tasks: CompactTask[];
   calendarHref?: string;
-  aisleOrder?: string[];
+  categoryOrder?: string[];
 }
 
 export type CompanionToWatchMessage =
@@ -58,9 +58,9 @@ export type CompanionToWatchMessage =
       type: 'LISTS_PAYLOAD';
       calendars: CompactCalendar[];
       defaultCalendarHref?: string;
-      aisleOrder?: string[];
+      categoryOrder?: string[];
     }
-  | { type: 'TASKS_PAYLOAD'; tasks: CompactTask[]; calendarHref?: string; aisleOrder?: string[] }
+  | { type: 'TASKS_PAYLOAD'; tasks: CompactTask[]; calendarHref?: string; categoryOrder?: string[] }
   | TasksChunkMessage
   | {
       type: 'UPDATE_ACK';

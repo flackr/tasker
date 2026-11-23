@@ -18,7 +18,7 @@ function TasksSettings() {
           settingsKey="app_password"
         />
       </Section>
-      <Section title="Grocery List &amp; Aisles">
+      <Section title="Task Lists &amp; Categories">
         <TextInput
           label="Task List Name (optional)"
           placeholder="shopping (leave blank to auto-detect)"

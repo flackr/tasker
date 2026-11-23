@@ -2,9 +2,10 @@ import {
   CalDavError,
   createCalDavClient,
   createWebDavClient,
+  resolveConfiguredCategories,
   toCompactTask,
 } from "@tasker/core";
-import { chunkTasksPayload, sortTasksByAisle } from "@tasker/core/watch";
+import { chunkTasksPayload, sortTasksByCategory } from "@tasker/core/watch";
 
 function parseSettingValue(raw) {
   if (!raw) return "";
@@ -70,7 +71,7 @@ export function createCompanionSync(options) {
   const { settingsStorage, send, fetch: fetchImpl, maxChunkBytes = 900 } = options;
 
   let activeCalendarHref = null;
-  let aisleOrder = [];
+  let categoryOrder = [];
   let cachedConfigDefaultHref;
   /** Map<calendarHref, Map<uid, Task>> */
   const cacheByCalendar = new Map();
@@ -102,8 +103,9 @@ export function createCompanionSync(options) {
     if (!clients.credentials.configPath) return;
     try {
       const config = await clients.webdav.getJsonFile(clients.credentials.configPath);
-      if (config && Array.isArray(config.aisles)) {
-        aisleOrder = config.aisles.slice();
+      const configured = resolveConfiguredCategories(config);
+      if (configured) {
+        categoryOrder = configured;
       }
       if (config && typeof config.defaultCalendarHref === "string") {
         cachedConfigDefaultHref = config.defaultCalendarHref;
@@ -146,7 +148,7 @@ export function createCompanionSync(options) {
         type: "LISTS_PAYLOAD",
         calendars: compactCalendars,
         defaultCalendarHref,
-        aisleOrder: aisleOrder.slice(),
+        categoryOrder: categoryOrder.slice(),
       });
     } catch (error) {
       send({
@@ -175,14 +177,14 @@ export function createCompanionSync(options) {
         calCache.set(tasks[i].uid, tasks[i]);
       }
 
-      const compact = sortTasksByAisle(
+      const compact = sortTasksByCategory(
         tasks.map((t) => toCompactTask(t)),
-        aisleOrder,
+        categoryOrder,
       );
       const messages = chunkTasksPayload(compact, {
         maxBytes: maxChunkBytes,
         calendarHref,
-        aisleOrder,
+        categoryOrder,
       });
 
       for (let i = 0; i < messages.length; i++) {

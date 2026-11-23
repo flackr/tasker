@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { bootstrapRemoteConfig, clearCredentials, loadCredentials, saveCredentials } from '../auth';
 import {
   clearAllLocalData,
-  DEFAULT_AISLES,
+  DEFAULT_CATEGORIES,
   IndexedDbSyncStorage,
-  loadAisleOrder,
+  loadAutoCategorize,
+  loadCategoryOrder,
   loadTaskerConfig,
-  saveAisleOrder,
+  saveAutoCategorize,
+  saveCategoryOrder,
 } from './storage';
 
 describe('IndexedDbSyncStorage and settings persistence', () => {
@@ -73,10 +75,14 @@ describe('IndexedDbSyncStorage and settings persistence', () => {
     expect((await storage.queue.list()).map((op) => op.id)).toEqual([id2]);
   });
 
-  it('persists aisle order, bootstraps remote tasker-config.json, and clears everything on logout', async () => {
-    expect(await loadAisleOrder()).toEqual(DEFAULT_AISLES);
-    await saveAisleOrder(['Produce', 'Dairy']);
-    expect(await loadAisleOrder()).toEqual(['Produce', 'Dairy']);
+  it('persists category order, auto-categorize toggle, bootstraps tasker-config.json, and clears on logout', async () => {
+    expect(await loadCategoryOrder()).toEqual(DEFAULT_CATEGORIES);
+    await saveCategoryOrder(['Produce', 'Dairy']);
+    expect(await loadCategoryOrder()).toEqual(['Produce', 'Dairy']);
+
+    expect(await loadAutoCategorize()).toBe(false);
+    await saveAutoCategorize(true);
+    expect(await loadAutoCategorize()).toBe(true);
 
     const backend = createMockCalDav({
       auth: { username: 'alice', password: 'secret' },
@@ -85,7 +91,7 @@ describe('IndexedDbSyncStorage and settings persistence', () => {
           path: 'Notes/tasker-config.json',
           content: JSON.stringify({
             defaultCalendarHref: '/remote.php/dav/calendars/alice/shopping/',
-            aisles: ['Fruits', 'Bread', 'Dairy'],
+            categories: ['Fruits', 'Bread', 'Dairy'],
             recipesPath: 'Recipes',
           }),
           contentType: 'application/json',
@@ -102,13 +108,14 @@ describe('IndexedDbSyncStorage and settings persistence', () => {
     await saveCredentials(creds);
     const cfg = await bootstrapRemoteConfig(creds, backend.createFetch());
     expect(cfg?.recipesPath).toBe('Recipes');
-    expect(await loadAisleOrder()).toEqual(['Fruits', 'Bread', 'Dairy']);
+    expect(await loadCategoryOrder()).toEqual(['Fruits', 'Bread', 'Dairy']);
     expect((await loadTaskerConfig())?.defaultCalendarHref).toBe(
       '/remote.php/dav/calendars/alice/shopping/',
     );
 
     await clearCredentials();
     expect(await loadCredentials()).toBeUndefined();
-    expect(await loadAisleOrder()).toEqual(DEFAULT_AISLES);
+    expect(await loadCategoryOrder()).toEqual(DEFAULT_CATEGORIES);
+    expect(await loadAutoCategorize()).toBe(false);
   });
 });

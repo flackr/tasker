@@ -7,7 +7,7 @@ A local-first, Bring-Your-Own-Backend (BYOB) grocery and task management ecosyst
 - **Offline-first Progressive Web App (PWA)** — works without an internet connection; changes sync automatically when connectivity is restored.
 - **Fitbit Versa 2 companion app** — browse and check off grocery items directly from your wrist.
 - **CalDAV-backed task storage** — every task is a standard `VTODO` object on your Nextcloud CalDAV server.
-- **Aisle-based grocery sorting** — CalDAV `CATEGORIES` are used to tag items by store aisle, so the list is automatically sorted the way you walk the store.
+- **Category-based sorting & on-device AI auto-categorization** — CalDAV `CATEGORIES` group and order tasks consistently across both clients, and browsers supporting the Web Prompt API (`LanguageModel`) can automatically categorize uncategorized items locally on-device.
 - **Full CRUD** — create, read, update, and delete tasks from any client; changes reconcile via Nextcloud.
 
 ## Architecture Overview

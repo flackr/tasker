@@ -75,14 +75,14 @@ test('US-001: User enters credentials, selects a task list, and loads tasks', as
     await expect(page.getByTestId('status')).toContainText('Loaded 1 tasks');
 
     await tester.step('tasks-loaded', {
-      description: 'Tasks load in the aisle-grouped grocery list after selecting a task list',
+      description: 'Tasks load in the category-grouped task list after selecting a task list',
       verifications: [
         {
           spec: 'Status shows loaded task count',
           check: async () => await expect(page.getByTestId('status')).toContainText('Loaded 1 tasks'),
         },
         {
-          spec: 'Task list shows the fetched task under its aisle',
+          spec: 'Task list shows the fetched task under its category',
           check: async () => await expect(page.getByTestId('task-list')).toContainText('Milk'),
         },
       ],

@@ -27,7 +27,7 @@ export interface TaskerDBSchema extends DBSchema {
   };
   settings: {
     key: string;
-    value: string[] | TaskerConfig;
+    value: string[] | TaskerConfig | boolean;
   };
 }
 

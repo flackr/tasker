@@ -28,7 +28,7 @@ All unit, integration, and rendered UI tests must run **without real devices or 
 
 | Layer | Tool | Scope |
 |---|---|---|
-| Unit | Vitest | `@tasker/core` & `@tasker/core/watch` (parsers, serializers, aisle sorting, conflict logic, watch merge/protocol), PWA DB/auth helpers |
+| Unit | Vitest | `@tasker/core` & `@tasker/core/watch` (parsers, serializers, category sorting, conflict logic, watch merge/protocol), PWA DB/auth/AI categorizer helpers |
 | Integration | Vitest + `@tasker/mock-caldav` | `CalDavClient`, `WebDavClient`, `SyncEngine`, Fitbit Companion sync handler, offline queue replay & `412` conflict flows |
 | Rendered / E2E (PWA) | Playwright + `TestStepHelper` | Real Chromium against Vite dev server + `@tasker/mock-caldav` |
 | Rendered / E2E (Fitbit) | Playwright + `TestStepHelper` + Versa 2 harness | Real Chromium (`300×300`) running Fitbit Watch SVG/JS + shimmed widgets/`fs`/messaging wired to real Companion + `@tasker/mock-caldav` |
@@ -66,7 +66,7 @@ npm -w @tasker/web run test                 # PWA unit & integration tests
 ```
 
 Key test targets:
-- `packages/core/src/watch/`: `sortTasksByAisle`, watch cache merge, pending offline toggles, message protocol & chunking.
+- `packages/core/src/watch/`: `sortTasksByCategory`, watch cache merge & timestamp reconciliation, pending offline toggles, message protocol & chunking.
 - `packages/core/src/caldav/`: lossless `VTODO` parser/serializer (including unknown property preservation & RFC 5545 folding), XML parser, `CalDavClient`, `WebDavClient`.
 - `packages/core/src/sync/`: `SyncEngine` full/incremental CTag sync, FIFO `SyncQueue` replay, `If-Match` / `412` conflict resolution.
 - `web/src/`: `auth.ts`, IndexedDB store adapter (`fake-indexeddb`), UI logic.

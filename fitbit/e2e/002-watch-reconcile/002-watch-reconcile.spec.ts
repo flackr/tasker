@@ -42,7 +42,7 @@ test('FIT-002: Newer server changes take precedence over older unsynced watch to
     files: [
       {
         path: 'Notes/tasker-config.json',
-        content: JSON.stringify({ aisles: ['Produce', 'Dairy'] }),
+        content: JSON.stringify({ categories: ['Produce', 'Dairy'] }),
         contentType: 'application/json',
       },
     ],

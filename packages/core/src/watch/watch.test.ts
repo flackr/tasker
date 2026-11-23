@@ -124,7 +124,7 @@ describe('watch message chunking and reassembly', () => {
     const small: CompactTask[] = [
       { uid: '1', summary: 'Milk', categories: ['Dairy'], completed: false },
     ];
-    const msgs = chunkTasksPayload(small, { maxBytes: 900, aisleOrder: ['Dairy'] });
+    const msgs = chunkTasksPayload(small, { maxBytes: 900, categoryOrder: ['Dairy'] });
     expect(msgs).toHaveLength(1);
     expect(msgs[0].type).toBe('TASKS_PAYLOAD');
   });
@@ -145,7 +145,7 @@ describe('watch message chunking and reassembly', () => {
       maxBytes: 350,
       transferId: 'tx-1',
       calendarHref: '/cal/shopping/',
-      aisleOrder: ['Produce', 'Dairy'],
+      categoryOrder: ['Produce', 'Dairy'],
     });
     expect(messages.length).toBeGreaterThan(2);
     for (const msg of messages) {
@@ -169,7 +169,7 @@ describe('watch message chunking and reassembly', () => {
     expect(result).toEqual({
       tasks,
       calendarHref: '/cal/shopping/',
-      aisleOrder: ['Produce', 'Dairy'],
+      categoryOrder: ['Produce', 'Dairy'],
     });
   });
 

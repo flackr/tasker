@@ -23,13 +23,13 @@ As a user, I want to connect to my Nextcloud server, choose a VTODO task list, a
 
 ---
 
-## Tasks load in the aisle-grouped grocery list after selecting a task list
+## Tasks load in the category-grouped task list after selecting a task list
 
-![Tasks load in the aisle-grouped grocery list after selecting a task list](./screenshots/002-tasks-loaded.png)
+![Tasks load in the category-grouped task list after selecting a task list](./screenshots/002-tasks-loaded.png)
 
 **Verifications:**
 - [x] Status shows loaded task count
-- [x] Task list shows the fetched task under its aisle
+- [x] Task list shows the fetched task under its category
 
 ---
 

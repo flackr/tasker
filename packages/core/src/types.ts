@@ -2,7 +2,7 @@ import type { CompactTask, TaskStatus } from './watch/index.js';
 
 export type {
   AcknowledgeWatchToggleMeta,
-  AisleSortableTask,
+  CategorySortableTask,
   ChunkOptions,
   ChunkReassembler,
   CompactCalendar,
@@ -51,13 +51,15 @@ export interface Task {
   dirty?: boolean;
 }
 
-export interface AisleConfig {
-  aisles: string[];
+export interface CategoryConfig {
+  categories: string[];
 }
 
 export interface TaskerConfig {
   defaultCalendarHref?: string;
   recipesPath?: string;
+  categories?: string[];
+  /** @deprecated Legacy alias supported when reading older tasker-config.json files. */
   aisles?: string[];
 }
 
@@ -71,6 +73,13 @@ export interface SyncOperation {
   task?: Task;
   expectedEtag?: string;
   queuedAt: string;
+}
+
+export function resolveConfiguredCategories(config?: TaskerConfig): string[] | undefined {
+  if (!config) return undefined;
+  if (Array.isArray(config.categories)) return config.categories.slice();
+  if (Array.isArray(config.aisles)) return config.aisles.slice();
+  return undefined;
 }
 
 export function toCompactTask(task: Task): CompactTask {

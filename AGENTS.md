@@ -8,7 +8,7 @@ Guidance for AI agents and contributors working on **tasker**.
 
 There are two primary client applications, built around shared core infrastructure in a root npm workspace:
 
-1. **PWA Web App (`web/`)** — Offline-first Progressive Web App for quickly managing grocery lists (sorted by store aisle), adding/editing tasks, and importing recipe ingredients.
+1. **PWA Web App (`web/`)** — Offline-first Progressive Web App for managing task lists (sorted by category), adding/editing tasks, auto-categorizing uncategorized items with the browser Prompt API when available, and importing recipe ingredients.
 2. **Fitbit Versa 2 App (`fitbit/`)** — Fitbit OS 4 (`@fitbit/sdk ~4.3.0`, target `mira`) watch app + smartphone companion app that syncs task lists to the wrist so items can be checked off while shopping and synced back to CalDAV.
 
 ## Documentation & Tracking Workflow
@@ -32,7 +32,7 @@ Always consult and keep these three living documents up to date as part of your 
 tasker/
 ├── package.json              # Root npm workspaces + unified build/test scripts
 ├── packages/
-│   ├── core/                 # @tasker/core — shared domain, VTODO, CalDAV, sync, aisle sorting
+│   ├── core/                 # @tasker/core — shared domain, VTODO, CalDAV, sync, category sorting
 │   │   ├── src/watch/        # @tasker/core/watch — ES5-compiled, JerryScript-safe watch subset
 │   │   └── src/              # @tasker/core — ES2015-compiled core for PWA & Fitbit Companion
 │   └── mock-caldav/          # @tasker/mock-caldav — stateful mock CalDAV/WebDAV server for tests
@@ -48,12 +48,12 @@ Design shared code with strict runtime boundaries so both clients reuse the same
 
 1. **Watch-Safe Core (`@tasker/core/watch`)**
    - Compiled to **ES5** (`tsconfig.watch.json`, `lib: ["ES5"]`) with zero external dependencies so Fitbit OS 4 (JerryScript) on Versa 2 can bundle and run it with minimal memory overhead.
-   - Contains compact task payloads, Watch↔Companion message protocol types/constants, aisle/category sorting, and watch-side state merge helpers.
+   - Contains compact task payloads, Watch↔Companion message protocol types/constants, category sorting, and watch-side state merge/reconciliation helpers.
    - Must **never** import `fetch`, DOM APIs, Node built-ins, or ES2015+ runtime features.
 
 2. **Full Shared Core (`@tasker/core`)**
    - Compiled to **ES2015** ESM (`tsconfig.json`, no DOM/Node-only globals) so it runs cleanly in the PWA (Vite), Fitbit Companion (`@fitbit/sdk` Rollup + Terser ES6), and Node/Vitest tests.
-   - Contains canonical `Task`, `CalendarInfo`, `Credentials`, `AisleConfig`, `TaskerConfig`, lossless `VTODO` parser/serializer (preserving unknown properties on `PUT`), CalDAV/WebDAV client with injectable `fetch` and runtime-agnostic XML parsing, and storage-agnostic `TaskStore` / `SyncQueue` / `SyncEngine` interfaces + conflict resolution.
+   - Contains canonical `Task`, `CalendarInfo`, `Credentials`, `CategoryConfig`, `TaskerConfig`, lossless `VTODO` parser/serializer (preserving unknown properties on `PUT`), CalDAV/WebDAV client with injectable `fetch` and runtime-agnostic XML parsing, and storage-agnostic `TaskStore` / `SyncQueue` / `SyncEngine` interfaces + conflict resolution.
 
 3. **Platform Adapters**
    - **PWA (`web/`):** IndexedDB storage adapter, Service Worker caching & Background Sync (`caldav-flush`), responsive mobile-first web UI.

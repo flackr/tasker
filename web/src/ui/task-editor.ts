@@ -3,17 +3,17 @@ import { escapeAttr, escapeHtml } from './html';
 
 export interface TaskEditorProps {
   task: Task;
-  aisleOrder: string[];
+  categoryOrder: string[];
   confirmingDelete: boolean;
 }
 
 export function renderTaskEditor({
   task,
-  aisleOrder,
+  categoryOrder,
   confirmingDelete,
 }: TaskEditorProps): string {
-  const aisleOptions = aisleOrder
-    .map((aisle) => `<option value="${escapeAttr(aisle)}">${escapeHtml(aisle)}</option>`)
+  const categoryOptions = categoryOrder
+    .map((cat) => `<option value="${escapeAttr(cat)}">${escapeHtml(cat)}</option>`)
     .join('');
 
   return `
@@ -29,13 +29,13 @@ export function renderTaskEditor({
             <input name="summary" type="text" required value="${escapeAttr(task.summary)}" />
           </label>
           <label>
-            <span>Aisles / Categories <small class="muted">(comma-separated)</small></span>
-            <input name="categories" type="text" list="aisle-datalist" value="${escapeAttr(task.categories.join(', '))}" />
-            <datalist id="aisle-datalist">${aisleOptions}</datalist>
+            <span>Categories <small class="muted">(comma-separated)</small></span>
+            <input name="categories" type="text" list="category-datalist" value="${escapeAttr(task.categories.join(', '))}" />
+            <datalist id="category-datalist">${categoryOptions}</datalist>
           </label>
           <label>
             <span>Notes</span>
-            <textarea name="description" rows="3" placeholder="Brand, quantity, size…">${escapeHtml(task.description ?? '')}</textarea>
+            <textarea name="description" rows="3" placeholder="Details, quantity, context…">${escapeHtml(task.description ?? '')}</textarea>
           </label>
           <label>
             <span>Priority <small class="muted">(0 = none, 1 = highest, 9 = lowest)</small></span>

@@ -17,11 +17,11 @@ function makeIcs(uid: string, summary: string, categories: string): string {
   ].join('\r\n');
 }
 
-test('US-002: User manages grocery items and customizes store aisle order', async ({ page }, testInfo) => {
+test('US-002: User manages tasks and customizes category order', async ({ page }, testInfo) => {
   const tester = new TestStepHelper(page, testInfo);
   tester.setMetadata(
-    'Grocery List CRUD & Aisle Sorting',
-    'As a shopper, I want items sorted by store aisle, and I want to add, check off, edit, reorder aisles, and delete items.',
+    'Task List CRUD & Category Sorting',
+    'As a user, I want tasks sorted by category order, and I want to add, check off, edit, reorder categories, and delete tasks.',
   );
 
   const server = await startMockCalDavServer({
@@ -35,7 +35,7 @@ test('US-002: User manages grocery items and customizes store aisle order', asyn
         path: 'Notes/tasker-config.json',
         content: JSON.stringify({
           defaultCalendarHref: '/remote.php/dav/calendars/alice/shopping/',
-          aisles: ['Produce', 'Bakery', 'Dairy'],
+          categories: ['Produce', 'Bakery', 'Dairy'],
         }),
         contentType: 'application/json',
       },
@@ -54,13 +54,13 @@ test('US-002: User manages grocery items and customizes store aisle order', asyn
     await expect(page.getByTestId('list-panel')).toBeVisible();
     await expect(page.getByTestId('status')).toContainText('Loaded 2 tasks');
 
-    await tester.step('aisle-sorted-list', {
-      description: 'Config bootstraps default list and sorts items by aisle walk order (Produce before Dairy)',
+    await tester.step('category-sorted-list', {
+      description: 'Config bootstraps default list and sorts items by category order (Produce before Dairy)',
       verifications: [
         {
           spec: 'Produce heading appears before Dairy heading',
           check: async () => {
-            const headings = await page.locator('.aisle-heading').allTextContents();
+            const headings = await page.locator('.category-heading').allTextContents();
             expect(headings).toEqual(['Produce', 'Dairy']);
           },
         },
@@ -75,8 +75,8 @@ test('US-002: User manages grocery items and customizes store aisle order', asyn
     });
 
     // Quick-add a Bakery item and check off Apples
-    await page.getByLabel('New grocery item').fill('Sourdough bread');
-    await page.getByLabel('Aisle').selectOption('Bakery');
+    await page.getByLabel('New task').fill('Sourdough bread');
+    await page.getByLabel('Category').selectOption('Bakery');
     await page.getByRole('button', { name: 'Add', exact: true }).click();
     await expect(page.getByTestId('task-list')).toContainText('Sourdough bread');
 
@@ -87,9 +87,9 @@ test('US-002: User manages grocery items and customizes store aisle order', asyn
       description: 'Quick-added Bakery item slots between Produce and Dairy, and Apples is checked off',
       verifications: [
         {
-          spec: 'Aisle headings are ordered Produce, Bakery, Dairy',
+          spec: 'Category headings are ordered Produce, Bakery, Dairy',
           check: async () => {
-            const headings = await page.locator('.aisle-heading').allTextContents();
+            const headings = await page.locator('.category-heading').allTextContents();
             expect(headings).toEqual(['Produce', 'Bakery', 'Dairy']);
           },
         },
@@ -128,39 +128,39 @@ test('US-002: User manages grocery items and customizes store aisle order', asyn
     await expect(page.getByTestId('task-editor-modal')).toBeHidden();
     await expect(page.getByTestId('task-list')).toContainText('Organic whole milk');
 
-    // Reorder aisles in Aisle Manager: move Dairy to the top
-    await page.getByRole('button', { name: 'Aisles' }).click();
-    await expect(page.getByTestId('aisle-manager')).toBeVisible();
+    // Reorder categories in Category Manager: move Dairy to the top
+    await page.getByRole('button', { name: 'Categories' }).click();
+    await expect(page.getByTestId('category-manager')).toBeVisible();
     await page.getByRole('button', { name: 'Move Dairy up' }).click();
     await page.getByRole('button', { name: 'Move Dairy up' }).click();
 
-    await tester.step('aisle-manager', {
-      description: 'User reorders aisles in Aisle Manager (Dairy moved first)',
+    await tester.step('category-manager', {
+      description: 'User reorders categories in Category Manager (Dairy moved first)',
       verifications: [
         {
-          spec: 'Dairy is now first in the aisle list',
+          spec: 'Dairy is now first in the category list',
           check: async () => {
-            const names = await page.locator('.aisle-name').allTextContents();
+            const names = await page.locator('.category-name').allTextContents();
             expect(names).toEqual(['1. Dairy', '2. Produce', '3. Bakery']);
           },
         },
       ],
     });
 
-    // Return to Grocery List and verify new walk order + delete Apples
-    await page.getByRole('button', { name: 'Grocery List' }).click();
+    // Return to Task List and verify new order + delete Apples
+    await page.getByRole('button', { name: 'Task List' }).click();
     await page.locator('[data-edit-uid="apples"]').click();
     await page.getByRole('button', { name: 'Delete' }).click();
     await page.getByRole('button', { name: 'Confirm Delete' }).click();
     await expect(page.locator('[data-task-uid="apples"]')).toBeHidden();
 
     await tester.step('reordered-and-deleted', {
-      description: 'Grocery list reflects updated aisle order (Dairy first) and removed item is deleted on server',
+      description: 'Task list reflects updated category order (Dairy first) and removed item is deleted on server',
       verifications: [
         {
           spec: 'Dairy appears before Bakery',
           check: async () => {
-            const headings = await page.locator('.aisle-heading').allTextContents();
+            const headings = await page.locator('.category-heading').allTextContents();
             expect(headings).toEqual(['Dairy', 'Bakery']);
           },
         },

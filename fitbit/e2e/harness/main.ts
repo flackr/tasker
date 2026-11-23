@@ -128,7 +128,7 @@ function createBrowserFitbitDocument(
     titleDom.className = 'watch-summary';
 
     const subDom = document.createElement('div');
-    subDom.className = 'watch-aisle';
+    subDom.className = 'watch-category';
 
     const chevron = document.createElement('div');
     chevron.className = 'watch-chevron';
@@ -206,13 +206,13 @@ function createBrowserFitbitDocument(
     const summaryEl = document.createElement('div');
     summaryEl.className = 'watch-summary';
 
-    const aisleEl = document.createElement('div');
-    aisleEl.className = 'watch-aisle';
+    const categoryEl = document.createElement('div');
+    categoryEl.className = 'watch-category';
 
     const boxEl = document.createElement('div');
     boxEl.className = 'watch-checkbox-box';
 
-    textWrap.append(summaryEl, aisleEl);
+    textWrap.append(summaryEl, categoryEl);
     row.append(textWrap, boxEl);
     tasksViewDom.appendChild(row);
 
@@ -256,12 +256,12 @@ function createBrowserFitbitDocument(
       },
     };
 
-    const aisle = {
+    const category = {
       get text() {
-        return aisleEl.textContent ?? '';
+        return categoryEl.textContent ?? '';
       },
       set text(val: string) {
-        aisleEl.textContent = val;
+        categoryEl.textContent = val;
       },
     };
 
@@ -269,7 +269,7 @@ function createBrowserFitbitDocument(
       getElementById(subId: string) {
         if (subId === 'task-tile-list') return tileList;
         if (subId === 'task-checkbox') return checkbox;
-        if (subId === 'item-aisle') return aisle;
+        if (subId === 'item-category') return category;
         return null;
       },
     };

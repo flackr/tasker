@@ -72,8 +72,8 @@ fitbit$ install
    - **Username** — your Nextcloud username
    - **App Password** — dedicated Nextcloud App Password (**Personal Settings → Security → Devices & sessions → Create new app password**)
    - **Task List Name (optional)** — e.g. `shopping`, or leave blank to auto-detect your first VTODO list (or use `defaultCalendarHref` from `tasker-config.json`)
-   - **Config JSON Path (optional)** — e.g. `Notes/tasker-config.json` to share the same store aisle walk order as the PWA
-3. Open **Tasks** on your Versa 2 — it will sync your aisle-sorted grocery list automatically. Tap any item to check it off (offline check-offs are cached on the watch via File Storage and sync automatically when reconnected).
+   - **Config JSON Path (optional)** — e.g. `Notes/tasker-config.json` to share the same category order as the PWA
+3. Open **Tasks** on your Versa 2 — pick any task list to view and check off items sorted by category (offline check-offs are cached per list via File Storage and reconcile automatically when reconnected).
 
 ## Local Testing (No Device Required)
 

@@ -29,7 +29,7 @@ function createMemoryFs() {
 interface MockTaskTile {
   display: string;
   checkbox: { text: string; value: number; onclick: (() => void) | null };
-  aisle: { text: string };
+  category: { text: string };
 }
 
 interface MockListTile {
@@ -55,7 +55,7 @@ function createMockWatchDocument(taskSlotCount = 20, listSlotCount = 10) {
     taskTiles.push({
       display: 'none',
       checkbox: { text: '', value: 0, onclick: null },
-      aisle: { text: '' },
+      category: { text: '' },
     });
   }
 
@@ -125,7 +125,7 @@ function createMockWatchDocument(taskSlotCount = 20, listSlotCount = 10) {
               };
             }
             if (subId === 'task-checkbox') return tile.checkbox;
-            if (subId === 'item-aisle') return tile.aisle;
+            if (subId === 'item-category') return tile.category;
             return null;
           },
         };
@@ -181,7 +181,7 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
       files: [
         {
           path: 'Notes/tasker-config.json',
-          content: JSON.stringify({ aisles: ['Produce', 'Dairy'] }),
+          content: JSON.stringify({ categories: ['Produce', 'Dairy'] }),
           contentType: 'application/json',
         },
       ],
@@ -288,7 +288,7 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
           path: 'Notes/tasker-config.json',
           content: JSON.stringify({
             defaultCalendarHref: '/remote.php/dav/calendars/alice/shopping/',
-            aisles: ['Produce', 'Dairy'],
+            categories: ['Produce', 'Dairy'],
           }),
           contentType: 'application/json',
         },

@@ -43,8 +43,8 @@ test('US-003: User edits tasks offline and resolves a 412 conflict on reconnect'
     await expect(page.getByTestId('offline-banner')).toBeVisible();
 
     // Queue offline changes: add Eggs + check off Milk
-    await page.getByLabel('New grocery item').fill('Eggs');
-    await page.getByLabel('Aisle').selectOption('Dairy');
+    await page.getByLabel('New task').fill('Eggs');
+    await page.getByLabel('Category').selectOption('Dairy');
     await page.getByRole('button', { name: 'Add', exact: true }).click();
     await page.getByLabel('Mark Milk as completed').check();
 

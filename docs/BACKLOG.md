@@ -37,13 +37,13 @@ This document tracks all planned work towards building the complete tasker ecosy
 
 ### Domain & Watch-Safe Module (`@tasker/core/watch`)
 - [x] Define compact task (`CompactTask`) and Watch↔Companion message protocol types
-- [x] Implement aisle/category sorting (`sortTasksByAisle`) with Vitest unit tests
-- [x] Implement watch-side local state merge & optimistic toggle queue helpers (`mergeWatchTasks`, pending toggle reconciliation)
+- [x] Implement category sorting (`sortTasksByCategory`) with Vitest unit tests
+- [x] Implement watch-side local state merge & optimistic toggle queue helpers (`mergeWatchTasks`, `reconcileWatchTasks`, pending toggle reconciliation)
 - [x] Implement message chunking/reassembly helpers for large task lists over Fitbit messaging / file transfer
 - [x] Achieve ≥ 95% Vitest coverage on `@tasker/core/watch`
 
 ### iCalendar (`VTODO`) Parser & Serializer
-- [x] Define canonical `Task`, `CalendarInfo`, `Credentials`, `AisleConfig`, and `TaskerConfig` models
+- [x] Define canonical `Task`, `CalendarInfo`, `Credentials`, `CategoryConfig`, and `TaskerConfig` models
 - [x] Implement lossless `VTODO` parser (`parseVTodo`):
   - [x] Parse `UID`, `SUMMARY`, `DESCRIPTION`, `STATUS`, `PERCENT-COMPLETE`, `PRIORITY`, `CATEGORIES`, `CREATED`, `LAST-MODIFIED`, `COMPLETED`, `DTSTART`, `DUE`
   - [x] Handle RFC 5545 folded lines (`CRLF + space/tab`), escaped characters, and multi-line/comma-separated `CATEGORIES`
@@ -109,14 +109,16 @@ This document tracks all planned work towards building the complete tasker ecosy
 - [x] Display offline indicator & sync status badge; register `caldav-flush` when mutations are queued offline
 - [x] Add conflict resolution UI when `412` occurs
 
-### Grocery List & Task Management UI
-- [x] Implement aisle-grouped grocery list view (`ui/list-view.ts`) using `@tasker/core/watch` `sortTasksByAisle`
+### Task List, Category & AI Auto-Categorize UI
+- [x] Implement category-grouped task list view (`ui/list-view.ts`) using `@tasker/core/watch` `sortTasksByCategory`
 - [x] Quick-add bar and one-tap completion toggle (optimistic local update + sync)
-- [x] Implement task editor (`ui/task-editor.ts`): add/edit summary, aisle/categories, notes, priority, and delete with confirmation
-- [x] Implement aisle manager (`ui/aisle-manager.ts`): add, rename, reorder, delete aisles (persisted locally and synced to `tasker-config.json`)
+- [x] Implement task editor (`ui/task-editor.ts`): add/edit summary, categories, notes, priority, and delete with confirmation
+- [x] Implement category manager (`ui/category-manager.ts`): add, rename, reorder, delete categories (persisted locally and synced to `tasker-config.json`)
+- [x] Implement on-device AI auto-categorization (`web/src/ai/categorizer.ts`) using the Web Prompt API (`LanguageModel`) with a Settings toggle and step-by-step progress UI
 - [x] Write Playwright E2E + zero-pixel visual regression scenarios:
-  - [x] Task CRUD & aisle-sorted grocery list (`web/e2e/002-grocery-crud/`)
+  - [x] Task CRUD & category-sorted task list (`web/e2e/002-task-crud/`)
   - [x] Offline edits → reconnect → automatic sync & conflict (`412`) resolution flow (`web/e2e/003-offline-and-conflicts/`)
+  - [x] On-device AI Prompt API auto-categorization (`web/e2e/004-auto-categorize/`)
 
 ---
 

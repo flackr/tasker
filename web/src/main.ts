@@ -13,6 +13,12 @@ import {
   type Task,
 } from '@tasker/core';
 import {
+  categorizeUncategorizedTasks,
+  checkPromptApiAvailability,
+  isPromptApiUsable,
+  type PromptApiAvailability,
+} from './ai/categorizer';
+import {
   bootstrapRemoteConfig,
   clearCredentials,
   loadCredentials,
@@ -20,19 +26,20 @@ import {
 } from './auth';
 import {
   IndexedDbSyncStorage,
-  loadAisleOrder,
+  loadAutoCategorize,
+  loadCategoryOrder,
   loadTaskerConfig,
-  saveAisleOrder,
+  saveAutoCategorize,
+  saveCategoryOrder,
   saveTaskerConfig,
 } from './db/storage';
 import { registerServiceWorker, requestBackgroundFlush } from './sw-register';
-import { renderAisleManager } from './ui/aisle-manager';
-import { escapeHtml } from './ui/html';
+import { renderCategoryManager } from './ui/category-manager';
 import { renderListView } from './ui/list-view';
 import { renderSettingsView } from './ui/settings-view';
 import { renderTaskEditor } from './ui/task-editor';
 
-type ActiveTab = 'list' | 'aisles' | 'settings';
+type ActiveTab = 'list' | 'categories' | 'settings';
 type ConnectionState = 'idle' | 'connecting' | 'connected' | 'error' | 'offline';
 
 interface AppState {
@@ -40,7 +47,7 @@ interface AppState {
   credentials?: Credentials;
   calendars: CalendarInfo[];
   tasks: Task[];
-  aisleOrder: string[];
+  categoryOrder: string[];
   pendingCount: number;
   conflicts: SyncConflict[];
   statusMessage: string;
@@ -49,7 +56,10 @@ interface AppState {
   hideCompleted: boolean;
   editingUid: string | null;
   confirmingDelete: boolean;
-  renamingAisleIndex: number | null;
+  renamingCategoryIndex: number | null;
+  autoCategorize: boolean;
+  promptApiAvailability: PromptApiAvailability;
+  autoCategorizeProgress: string | null;
 }
 
 const appRoot = document.querySelector<HTMLDivElement>('#app');
@@ -58,12 +68,14 @@ if (!appRoot) throw new Error('App root not found');
 const storage = new IndexedDbSyncStorage();
 let syncEngine: SyncEngine | null = null;
 let syncInFlight = false;
+let autoCategorizeAbort: AbortController | null = null;
+const attemptedAutoCategorizeUids = new Set<string>();
 
 const state: AppState = {
   tab: 'settings',
   calendars: [],
   tasks: [],
-  aisleOrder: [],
+  categoryOrder: [],
   pendingCount: 0,
   conflicts: [],
   statusMessage: 'Enter your Nextcloud credentials to load tasks.',
@@ -72,7 +84,10 @@ const state: AppState = {
   hideCompleted: false,
   editingUid: null,
   confirmingDelete: false,
-  renamingAisleIndex: null,
+  renamingCategoryIndex: null,
+  autoCategorize: false,
+  promptApiAvailability: 'unsupported',
+  autoCategorizeProgress: null,
 };
 
 function createEngine(credentials: Credentials): SyncEngine {
@@ -81,7 +96,8 @@ function createEngine(credentials: Credentials): SyncEngine {
 }
 
 async function refreshLocalState(): Promise<void> {
-  state.aisleOrder = await loadAisleOrder();
+  state.categoryOrder = await loadCategoryOrder();
+  state.autoCategorize = await loadAutoCategorize();
   state.calendars = await storage.calendars.getAllCalendars();
   state.pendingCount = (await storage.queue.list()).length;
   if (state.credentials?.calendarHref) {
@@ -94,6 +110,7 @@ async function refreshLocalState(): Promise<void> {
 async function bootstrap(): Promise<void> {
   state.isOnline = navigator.onLine;
   state.credentials = await loadCredentials();
+  state.promptApiAvailability = await checkPromptApiAvailability();
   await refreshLocalState();
 
   if (state.credentials) {
@@ -135,7 +152,11 @@ async function bootstrap(): Promise<void> {
   });
 
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && navigator.onLine && state.credentials?.calendarHref) {
+    if (
+      document.visibilityState === 'visible' &&
+      navigator.onLine &&
+      state.credentials?.calendarHref
+    ) {
       void runSync({ force: false });
     }
   });
@@ -162,7 +183,7 @@ async function discoverCalendars(credentials: Credentials): Promise<void> {
     }
 
     state.calendars = calendars;
-    state.aisleOrder = await loadAisleOrder();
+    state.categoryOrder = await loadCategoryOrder();
 
     if (calendars.length === 0) {
       state.connectionState = 'connected';
@@ -234,6 +255,10 @@ async function runSync(options: { force?: boolean } = {}): Promise<void> {
     syncInFlight = false;
     render();
   }
+
+  if (state.autoCategorize && state.tab === 'list') {
+    void maybeAutoCategorize(false);
+  }
 }
 
 async function flushOrScheduleSync(): Promise<void> {
@@ -252,20 +277,87 @@ async function flushOrScheduleSync(): Promise<void> {
   await runSync({ force: false });
 }
 
-async function persistAisles(aisles: string[]): Promise<void> {
-  state.aisleOrder = aisles;
+async function maybeAutoCategorize(manualTrigger: boolean): Promise<void> {
+  if (autoCategorizeAbort || !syncEngine || !state.credentials?.calendarHref) return;
+  if (!isPromptApiUsable(state.promptApiAvailability) || state.categoryOrder.length === 0) return;
+
+  if (manualTrigger) {
+    attemptedAutoCategorizeUids.clear();
+  }
+
+  const candidates = state.tasks.filter(
+    (t) => t.categories.length === 0 && !attemptedAutoCategorizeUids.has(t.uid),
+  );
+  if (candidates.length === 0) return;
+
+  const controller = new AbortController();
+  autoCategorizeAbort = controller;
+  state.autoCategorizeProgress = `Starting on-device AI for ${candidates.length} item(s)…`;
   render();
-  await saveAisleOrder(aisles);
+
+  let assignedCount = 0;
+
+  try {
+    const result = await categorizeUncategorizedTasks(candidates, state.categoryOrder, {
+      signal: controller.signal,
+      callbacks: {
+        onDownloadProgress(fraction) {
+          state.autoCategorizeProgress = `Downloading local AI model (${Math.round(fraction * 100)}%)…`;
+          render();
+        },
+        onStepStart(task, index, total) {
+          state.autoCategorizeProgress = `Auto-categorizing ${index + 1}/${total}: "${task.summary}"…`;
+          render();
+        },
+        async onTaskCategorized(task, category) {
+          attemptedAutoCategorizeUids.add(task.uid);
+          if (category && syncEngine) {
+            const latest = (await storage.tasks.getTask(task.uid)) ?? task;
+            await syncEngine.updateTask({ ...latest, categories: [category] });
+            assignedCount += 1;
+            await refreshLocalState();
+            render();
+          }
+        },
+      },
+    });
+
+    state.autoCategorizeProgress = null;
+    autoCategorizeAbort = null;
+
+    if (assignedCount > 0) {
+      await flushOrScheduleSync();
+    } else if (result.cancelled) {
+      state.statusMessage = 'Auto-categorize stopped.';
+      render();
+    } else {
+      render();
+    }
+  } catch (error) {
+    state.autoCategorizeProgress = null;
+    autoCategorizeAbort = null;
+    state.statusMessage =
+      error instanceof Error ? `Auto-categorize failed: ${error.message}` : 'Auto-categorize failed';
+    render();
+  }
+}
+
+async function persistCategories(categories: string[]): Promise<void> {
+  state.categoryOrder = categories;
+  attemptedAutoCategorizeUids.clear();
+  render();
+  await saveCategoryOrder(categories);
 
   if (state.credentials?.configPath && navigator.onLine) {
     try {
       const existing = (await loadTaskerConfig()) ?? {};
-      const nextConfig = { ...existing, aisles };
+      const nextConfig = { ...existing, categories };
+      delete nextConfig.aisles;
       await saveTaskerConfig(nextConfig);
       const webdav = createWebDavClient(state.credentials);
       await webdav.putJsonFile(state.credentials.configPath, nextConfig);
     } catch {
-      // Local aisle update still succeeds if remote config write fails
+      // Local category update still succeeds if remote config write fails
     }
   }
 }
@@ -285,22 +377,26 @@ function render(): void {
     state.tab === 'list' && hasCalendar
       ? renderListView({
           tasks: state.tasks,
-          aisleOrder: state.aisleOrder,
+          categoryOrder: state.categoryOrder,
           conflicts: state.conflicts,
           statusMessage: state.statusMessage,
           hideCompleted: state.hideCompleted,
           calendarName: getActiveCalendarName(),
+          promptApiAvailability: state.promptApiAvailability,
+          autoCategorizeProgress: state.autoCategorizeProgress,
         })
-      : state.tab === 'aisles'
-        ? renderAisleManager({
-            aisles: state.aisleOrder,
-            renamingIndex: state.renamingAisleIndex,
+      : state.tab === 'categories'
+        ? renderCategoryManager({
+            categories: state.categoryOrder,
+            renamingIndex: state.renamingCategoryIndex,
           })
         : renderSettingsView({
             credentials: state.credentials,
             calendars: state.calendars,
             connectionStatus: state.statusMessage,
             connectionState: state.connectionState,
+            autoCategorize: state.autoCategorize,
+            promptApiAvailability: state.promptApiAvailability,
           });
 
   appRoot!.innerHTML = `
@@ -311,8 +407,8 @@ function render(): void {
           ${state.pendingCount > 0 ? `<span class="pending-badge" data-testid="pending-badge">${state.pendingCount} pending</span>` : ''}
         </div>
         <nav class="nav-tabs" aria-label="Main navigation">
-          <button type="button" class="nav-tab ${state.tab === 'list' ? 'active' : ''}" data-tab="list" ${!hasCalendar ? 'disabled' : ''}>Grocery List</button>
-          <button type="button" class="nav-tab ${state.tab === 'aisles' ? 'active' : ''}" data-tab="aisles">Aisles</button>
+          <button type="button" class="nav-tab ${state.tab === 'list' ? 'active' : ''}" data-tab="list" ${!hasCalendar ? 'disabled' : ''}>Task List</button>
+          <button type="button" class="nav-tab ${state.tab === 'categories' ? 'active' : ''}" data-tab="categories">Categories</button>
           <button type="button" class="nav-tab ${state.tab === 'settings' ? 'active' : ''}" data-tab="settings">Settings</button>
           ${hasCalendar ? `<button type="button" id="sync-now-btn" class="btn-sync" data-testid="sync-now" ${!state.isOnline ? 'disabled' : ''}>Sync</button>` : ''}
         </nav>
@@ -329,7 +425,7 @@ function render(): void {
         editingTask
           ? renderTaskEditor({
               task: editingTask,
-              aisleOrder: state.aisleOrder,
+              categoryOrder: state.categoryOrder,
               confirmingDelete: state.confirmingDelete,
             })
           : ''
@@ -347,8 +443,11 @@ function bindEvents(): void {
       const next = btn.dataset.tab as ActiveTab;
       if (!next) return;
       state.tab = next;
-      state.renamingAisleIndex = null;
+      state.renamingCategoryIndex = null;
       render();
+      if (next === 'list' && state.autoCategorize) {
+        void maybeAutoCategorize(false);
+      }
     });
   });
 
@@ -377,6 +476,9 @@ function bindEvents(): void {
 
   // Settings: logout
   appRoot!.querySelector<HTMLButtonElement>('#logout')?.addEventListener('click', async () => {
+    autoCategorizeAbort?.abort();
+    autoCategorizeAbort = null;
+    attemptedAutoCategorizeUids.clear();
     await clearCredentials();
     syncEngine = null;
     state.credentials = undefined;
@@ -385,10 +487,12 @@ function bindEvents(): void {
     state.conflicts = [];
     state.pendingCount = 0;
     state.editingUid = null;
+    state.autoCategorize = false;
+    state.autoCategorizeProgress = null;
     state.connectionState = 'idle';
     state.statusMessage = 'Credentials and local cache cleared.';
     state.tab = 'settings';
-    state.aisleOrder = await loadAisleOrder();
+    state.categoryOrder = await loadCategoryOrder();
     render();
   });
 
@@ -404,11 +508,39 @@ function bindEvents(): void {
     state.credentials = credentials;
     await saveCredentials(credentials);
     syncEngine = createEngine(credentials);
+    attemptedAutoCategorizeUids.clear();
     state.tab = 'list';
     state.statusMessage = 'Loading tasks…';
     render();
     await runSync({ force: true });
   });
+
+  // Settings: auto-categorize toggle
+  appRoot!
+    .querySelector<HTMLInputElement>('#toggle-auto-categorize')
+    ?.addEventListener('change', async (event) => {
+      const enabled = (event.currentTarget as HTMLInputElement).checked;
+      state.autoCategorize = enabled;
+      await saveAutoCategorize(enabled);
+      if (enabled) {
+        attemptedAutoCategorizeUids.clear();
+      } else {
+        autoCategorizeAbort?.abort();
+      }
+      render();
+    });
+
+  // List: manual auto-categorize & stop buttons
+  appRoot!
+    .querySelector<HTMLButtonElement>('#run-auto-categorize')
+    ?.addEventListener('click', () => {
+      void maybeAutoCategorize(true);
+    });
+  appRoot!
+    .querySelector<HTMLButtonElement>('#stop-auto-categorize')
+    ?.addEventListener('click', () => {
+      autoCategorizeAbort?.abort();
+    });
 
   // List: hide completed toggle
   appRoot!
@@ -425,13 +557,17 @@ function bindEvents(): void {
     if (!syncEngine || !state.credentials?.calendarHref) return;
     const formData = new FormData(quickAddForm);
     const summary = String(formData.get('summary') ?? '').trim();
-    const aisle = String(formData.get('aisle') ?? '').trim();
+    const category = String(formData.get('category') ?? '').trim();
     if (!summary) return;
-    await syncEngine.createTask(state.credentials.calendarHref, {
+    const created = await syncEngine.createTask(state.credentials.calendarHref, {
       summary,
-      categories: aisle ? [aisle] : [],
+      categories: category ? [category] : [],
     });
     await flushOrScheduleSync();
+    if (!category && state.autoCategorize) {
+      attemptedAutoCategorizeUids.delete(created.uid);
+      void maybeAutoCategorize(false);
+    }
   });
 
   // List: toggle completion checkboxes
@@ -525,74 +661,72 @@ function bindEvents(): void {
     await flushOrScheduleSync();
   });
 
-  // Aisle manager
-  const addAisleForm = appRoot!.querySelector<HTMLFormElement>('#add-aisle-form');
-  addAisleForm?.addEventListener('submit', async (event) => {
+  // Category manager
+  const addCategoryForm = appRoot!.querySelector<HTMLFormElement>('#add-category-form');
+  addCategoryForm?.addEventListener('submit', async (event) => {
     event.preventDefault();
-    const formData = new FormData(addAisleForm);
-    const name = String(formData.get('aisleName') ?? '').trim();
+    const formData = new FormData(addCategoryForm);
+    const name = String(formData.get('categoryName') ?? '').trim();
     if (!name) return;
-    if (!state.aisleOrder.some((a) => a.toLowerCase() === name.toLowerCase())) {
-      await persistAisles([...state.aisleOrder, name]);
+    if (!state.categoryOrder.some((c) => c.toLowerCase() === name.toLowerCase())) {
+      await persistCategories([...state.categoryOrder, name]);
     }
   });
 
   appRoot!.querySelectorAll<HTMLButtonElement>('[data-move-up]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const idx = Number(btn.dataset.moveUp);
-      if (idx <= 0 || idx >= state.aisleOrder.length) return;
-      const next = state.aisleOrder.slice();
+      if (idx <= 0 || idx >= state.categoryOrder.length) return;
+      const next = state.categoryOrder.slice();
       [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
-      await persistAisles(next);
+      await persistCategories(next);
     });
   });
 
   appRoot!.querySelectorAll<HTMLButtonElement>('[data-move-down]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const idx = Number(btn.dataset.moveDown);
-      if (idx < 0 || idx >= state.aisleOrder.length - 1) return;
-      const next = state.aisleOrder.slice();
+      if (idx < 0 || idx >= state.categoryOrder.length - 1) return;
+      const next = state.categoryOrder.slice();
       [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
-      await persistAisles(next);
+      await persistCategories(next);
     });
   });
 
   appRoot!.querySelectorAll<HTMLButtonElement>('[data-start-rename]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      state.renamingAisleIndex = Number(btn.dataset.startRename);
+      state.renamingCategoryIndex = Number(btn.dataset.startRename);
       render();
     });
   });
 
   appRoot!.querySelectorAll<HTMLButtonElement>('[data-rename-cancel]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      state.renamingAisleIndex = null;
+      state.renamingCategoryIndex = null;
       render();
     });
   });
 
-  appRoot!.querySelectorAll<HTMLFormElement>('.rename-aisle-form').forEach((form) => {
+  appRoot!.querySelectorAll<HTMLFormElement>('.rename-category-form').forEach((form) => {
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       const idx = Number(form.dataset.renameIndex);
       const newName = String(new FormData(form).get('newName') ?? '').trim();
-      if (!newName || idx < 0 || idx >= state.aisleOrder.length) return;
-      const next = state.aisleOrder.slice();
+      if (!newName || idx < 0 || idx >= state.categoryOrder.length) return;
+      const next = state.categoryOrder.slice();
       next[idx] = newName;
-      state.renamingAisleIndex = null;
-      await persistAisles(next);
+      state.renamingCategoryIndex = null;
+      await persistCategories(next);
     });
   });
 
-  appRoot!.querySelectorAll<HTMLButtonElement>('[data-delete-aisle]').forEach((btn) => {
+  appRoot!.querySelectorAll<HTMLButtonElement>('[data-delete-category]').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      const idx = Number(btn.dataset.deleteAisle);
-      const next = state.aisleOrder.filter((_, i) => i !== idx);
-      await persistAisles(next);
+      const idx = Number(btn.dataset.deleteCategory);
+      const next = state.categoryOrder.filter((_, i) => i !== idx);
+      await persistCategories(next);
     });
   });
 }
 
-// Keep unused import check satisfied in strict TS
-void escapeHtml;
 void bootstrap();
