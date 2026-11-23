@@ -1,18 +1,18 @@
 <svg>
   <rect id="background" x="0" y="0" width="100%" height="100%" fill="#000000" />
 
-  <!-- Top header bar (back to lists, status, manual sync trigger) -->
+  <!-- Top header bar (Lists sub-view / Back button, status, manual sync trigger) -->
   <rect id="header-bg" x="0" y="0" width="100%" height="38" fill="#111827" />
   <rect id="back-btn" x="6" y="5" width="54" height="28" rx="6" fill="#374151" pointer-events="visible" display="none" />
-  <text id="back-btn-label" x="33" y="24" text-anchor="middle" font-size="14" fill="#ffffff" pointer-events="none" display="none">Lists</text>
+  <text id="back-btn-label" x="33" y="24" text-anchor="middle" text-length="8" font-size="14" fill="#ffffff" pointer-events="none" display="none">Lists</text>
   <text id="status" x="66" y="25" text-length="32" font-size="16" fill="#e5e7eb">Loading...</text>
   <rect id="sync-btn" x="236" y="5" width="58" height="28" rx="6" fill="#2563eb" pointer-events="visible" />
   <text id="sync-btn-label" x="265" y="24" text-anchor="middle" font-size="14" fill="#ffffff" pointer-events="none">Sync</text>
   <rect id="header-divider" x="0" y="38" width="100%" height="2" fill="#1f2937" />
 
-  <!-- Reusable list picker tile -->
-  <symbol id="list-item">
-    <use id="list-tile-list" href="#tile-list-item" class="tile-list-item">
+  <!-- Reusable list picker tile (explicit 58px height so multiple lists show at once on Versa 2) -->
+  <symbol id="list-item" height="58">
+    <use id="list-tile-list" href="#tile-list-item" class="tile-list-item" height="58">
       <rect id="list-touch" x="0" y="0" width="100%" height="58" fill="#000000" pointer-events="visible" />
       <text id="list-title" x="14" y="28" text-length="28" font-size="22" fill="#ffffff" pointer-events="none"></text>
       <text id="list-subtitle" x="14" y="50" text-length="28" font-size="14" fill="#60a5fa" pointer-events="none"></text>
@@ -21,9 +21,9 @@
   </symbol>
 
   <!-- Reusable task tile -->
-  <symbol id="task-item">
-    <use id="task-tile-list" href="#tile-list-item" class="tile-list-item">
-      <rect id="item-background" height="58" fill="#000000" />
+  <symbol id="task-item" height="58">
+    <use id="task-tile-list" href="#tile-list-item" class="tile-list-item" height="58">
+      <rect id="item-background" width="100%" height="58" fill="#000000" />
 
       <use id="task-checkbox" href="#checkbox-tile" class="checkbox-tile">
         <set id="summary" href="header/text" attributeName="text-buffer" to="Placeholder" />
@@ -34,8 +34,8 @@
     </use>
   </symbol>
 
-  <!-- View 1: Available task lists -->
-  <g id="lists-view">
+  <!-- Sub-view: Available task lists picker -->
+  <g id="lists-view" display="none">
     <use id="lists-checklist" href="#tile-list" x="0" y="40" width="100%" height="260">
       <use id="list-item-0" href="#list-item" class="item" />
       <use id="list-item-1" href="#list-item" class="item" />
@@ -60,8 +60,8 @@
     </use>
   </g>
 
-  <!-- View 2: Selected task list items -->
-  <g id="tasks-view" display="none">
+  <!-- Top-level view: Selected task list items -->
+  <g id="tasks-view">
     <use id="checklist" href="#tile-list" x="0" y="40" width="100%" height="260">
       <use id="item-0" href="#task-item" class="item" />
       <use id="item-1" href="#task-item" class="item" />

@@ -12,6 +12,7 @@ interface HarnessApi {
   setOnline(online: boolean): void;
   setFixedNow(epochMs: number | null): void;
   configureSettings(entries: Record<string, string>): void;
+  pressHardwareBack(): boolean;
   getWatchState(): unknown;
   listFsFiles(): string[];
   readFsFile(filename: string): unknown;
@@ -87,7 +88,20 @@ function createBrowserFitbitDocument(
   };
 
   const backBtnLabelEl = {
-    style: { display: 'none' },
+    get text() {
+      return backDom.textContent ?? '';
+    },
+    set text(val: string) {
+      backDom.textContent = val;
+    },
+    style: {
+      get display() {
+        return backDom.style.display;
+      },
+      set display(val: string) {
+        backDom.style.display = val === 'none' ? 'none' : 'inline-block';
+      },
+    },
   };
 
   const listsViewEl = {
@@ -367,6 +381,9 @@ window.__fitbitHarness = {
     if (isBluetoothOnline) {
       void companion.handleFetchLists();
     }
+  },
+  pressHardwareBack() {
+    return watchApp.goBack();
   },
   getWatchState() {
     return watchApp.getState();

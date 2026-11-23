@@ -367,13 +367,13 @@ The watch persists both the list catalog and each loaded list's tasks + unsynced
 - `tasker-list-<hash>.json` — one file per loaded calendar storing `{ calendarHref, tasks, pending, lastSyncedAt }`, where `pending` records unsynced local toggles `{ uid, completed, updatedAt }`.
 
 On startup:
-1. Immediately read `tasker-lists.json` (and the active list's `tasker-list-<hash>.json` if a list was previously open) and render right away.
-2. In the background, send `FETCH_LISTS` and (when viewing a list) `FETCH_TASKS` to the Companion.
+1. Immediately read `tasker-lists.json` (and the remembered list's `tasker-list-<hash>.json`) and render the top-level task list right away before Bluetooth finishes connecting.
+2. In the background once connected, send `FETCH_TASKS` for the remembered list (only sending `FETCH_LISTS` when the list catalog is empty or the user opens the Lists sub-view).
 3. When `TASKS_PAYLOAD` / `TASKS_CHUNK` arrives, run `reconcileWatchTasks(serverTasks, pending)` from `@tasker/core/watch`:
    - If the server's `lastModified >= pending.updatedAt`, **the newer server change wins** — the watch updates its display to the server's state and discards the stale pending toggle.
    - If the local watch toggle is strictly newer (`pending.updatedAt > server.lastModified`, or server has no `lastModified`), the watch preserves its local toggle and pushes `UPDATE_TASK` (carrying `updatedAt`) to the Companion.
    - Tasks deleted on the server are pruned along with any pending toggles for them.
-4. From any open list, the user can tap **Lists** (or press the Versa 2 hardware Back button) to return to the list picker and switch to another task list.
+4. The selected task list is the **top-level view**: pressing the Versa 2 hardware Back button exits the watch app cleanly while preserving `activeCalendarHref` in `tasker-lists.json`. Tapping the header **Lists** button opens the **Lists sub-view** (`58px` compact tiles so multiple lists are visible at once); tapping **Back** or pressing the hardware Back button inside the Lists sub-view returns to the remembered task list.
 
 ---
 

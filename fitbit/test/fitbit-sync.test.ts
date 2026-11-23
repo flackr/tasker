@@ -1,3 +1,5 @@
+import fsNode from 'node:fs';
+import path from 'node:path';
 import { parseVTodo } from '@tasker/core';
 import { createMockCalDav } from '@tasker/mock-caldav';
 import { describe, expect, it } from 'vitest';
@@ -46,9 +48,9 @@ function createMockWatchDocument(taskSlotCount = 20, listSlotCount = 10) {
     style: { display: 'none' },
     onclick: null as (() => void) | null,
   };
-  const backBtnLabel = { style: { display: 'none' } };
-  const listsView = { style: { display: 'inline' } };
-  const tasksView = { style: { display: 'none' } };
+  const backBtnLabel = { text: 'Lists', style: { display: 'none' } };
+  const listsView = { style: { display: 'none' } };
+  const tasksView = { style: { display: 'inline' } };
 
   const taskTiles: MockTaskTile[] = [];
   for (let i = 0; i < taskSlotCount; i++) {
@@ -134,7 +136,7 @@ function createMockWatchDocument(taskSlotCount = 20, listSlotCount = 10) {
     },
   };
 
-  return { doc, status, syncBtn, backBtn, listsView, tasksView, taskTiles, listTiles };
+  return { doc, status, syncBtn, backBtn, backBtnLabel, listsView, tasksView, taskTiles, listTiles };
 }
 
 function makeIcs(
@@ -223,27 +225,51 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
     expect(ui.listTiles[1].title.text).toBe('Hardware');
     expect(ui.listTiles[2].display).toBe('none');
 
-    // Select Shopping
+    // Select Shopping → top-level tasks view
     ui.listTiles[0].touch.onclick!();
     await flushPromises();
     expect(ui.tasksView.style.display).toBe('inline');
     expect(ui.backBtn.style.display).toBe('inline');
+    expect(ui.backBtnLabel.text).toBe('Lists');
     expect(ui.status.text).toBe('2 left');
     expect(ui.taskTiles[0].checkbox.text).toBe('Apples'); // Produce before Dairy
     expect(ui.taskTiles[1].checkbox.text).toBe('Milk');
 
-    // Go back to lists picker
+    // Hardware Back from top-level tasks view returns false (lets Versa 2 exit app cleanly)
+    // and keeps activeCalendarHref remembered in tasker-lists.json!
+    expect(watchApp.goBack()).toBe(false);
+    expect(ui.tasksView.style.display).toBe('inline');
+    expect((fs.files.get('tasker-lists.json') as { activeCalendarHref?: string }).activeCalendarHref).toBe(
+      '/remote.php/dav/calendars/alice/shopping/',
+    );
+
+    // Tap header "Lists" button → opens Lists sub-view without clearing activeCalendarHref
     ui.backBtn.onclick!();
+    await flushPromises();
     expect(ui.listsView.style.display).toBe('inline');
     expect(ui.tasksView.style.display).toBe('none');
+    expect(ui.backBtn.style.display).toBe('inline');
+    expect(ui.backBtnLabel.text).toBe('Back');
     expect(ui.listTiles[0].subtitle.text).toBe('2 left');
     expect(ui.listTiles[1].subtitle.text).toBe('Tap to load');
 
-    // Select Hardware
+    // Hardware Back from Lists sub-view returns true and returns to remembered Shopping list
+    expect(watchApp.goBack()).toBe(true);
+    expect(ui.tasksView.style.display).toBe('inline');
+    expect(ui.listsView.style.display).toBe('none');
+    expect(ui.backBtnLabel.text).toBe('Lists');
+    expect(ui.taskTiles[0].checkbox.text).toBe('Apples');
+
+    // Open Lists sub-view again and switch to Hardware
+    ui.backBtn.onclick!();
+    await flushPromises();
     ui.listTiles[1].touch.onclick!();
     await flushPromises();
     expect(ui.status.text).toBe('1 left');
     expect(ui.taskTiles[0].checkbox.text).toBe('Wood Screws');
+    expect((fs.files.get('tasker-lists.json') as { activeCalendarHref?: string }).activeCalendarHref).toBe(
+      '/remote.php/dav/calendars/alice/hardware/',
+    );
 
     // Verify separate per-list files exist in Fitbit fs
     const shoppingFile = getListCacheFilename('/remote.php/dav/calendars/alice/shopping/');
@@ -251,6 +277,107 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
     expect(fs.files.has('tasker-lists.json')).toBe(true);
     expect(fs.files.has(shoppingFile)).toBe(true);
     expect(fs.files.has(hardwareFile)).toBe(true);
+  });
+
+  it('displays remembered list immediately on Versa 2 relaunch before Bluetooth opens, then syncs updates in background', async () => {
+    const backend = createMockCalDav({
+      auth: { username: 'alice', password: 'secret' },
+      calendars: [
+        { slug: 'shopping', displayName: 'Shopping', components: ['VTODO'] },
+        { slug: 'hardware', displayName: 'Hardware', components: ['VTODO'] },
+      ],
+      tasks: [
+        { uid: 'milk', calendarSlug: 'shopping', etag: 'e1', ics: makeIcs('milk', 'Milk', 'Dairy') },
+        { uid: 'apples', calendarSlug: 'shopping', etag: 'e2', ics: makeIcs('apples', 'Apples', 'Produce') },
+      ],
+    });
+    const settingsStorage = createMemorySettings({
+      app_server: JSON.stringify({ name: 'https://cloud.example.com' }),
+      app_username: JSON.stringify({ name: 'alice' }),
+      app_password: JSON.stringify({ name: 'secret' }),
+    });
+    const fs = createMemoryFs();
+
+    // Session 1: pick Shopping, load tasks, then press hardware Back to exit
+    const ui1 = createMockWatchDocument();
+    let watchApp: ReturnType<typeof createWatchApp>;
+    const companion1 = createCompanionSync({
+      settingsStorage,
+      fetch: backend.createFetch(),
+      send: (msg: unknown) => watchApp.onMessage(msg),
+    });
+    watchApp = createWatchApp({
+      document: ui1.doc,
+      fs,
+      send: (msg: unknown) => void companion1.onMessage(msg),
+    });
+    watchApp.start();
+    await flushPromises();
+    ui1.listTiles[0].touch.onclick!();
+    await flushPromises();
+    expect(ui1.status.text).toBe('2 left');
+    expect(watchApp.goBack()).toBe(false); // Exits app cleanly without forgetting Shopping
+
+    // Meanwhile another device adds "Bread" on Nextcloud
+    backend.setTask({
+      uid: 'bread',
+      calendarSlug: 'shopping',
+      etag: 'e3',
+      ics: makeIcs('bread', 'Bread', 'Bakery'),
+    });
+
+    // Session 2: relaunch with Bluetooth initially CLOSED (real Versa 2 boot behavior)
+    let connected = false;
+    const sentTypes: string[] = [];
+    const ui2 = createMockWatchDocument();
+    const deliveredReplies: (() => void)[] = [];
+    const companion2 = createCompanionSync({
+      settingsStorage,
+      fetch: backend.createFetch(),
+      send: (msg: unknown) => deliveredReplies.push(() => watchApp.onMessage(msg)),
+    });
+    watchApp = createWatchApp({
+      document: ui2.doc,
+      fs,
+      isConnected: () => connected,
+      send: (msg: { type: string }) => {
+        sentTypes.push(msg.type);
+        void companion2.onMessage(msg);
+      },
+    });
+    watchApp.start();
+
+    // Saved Shopping list is displayed IMMEDIATELY before Bluetooth opens
+    expect(ui2.tasksView.style.display).toBe('inline');
+    expect(ui2.listsView.style.display).toBe('none');
+    expect(ui2.taskTiles[0].checkbox.text).toBe('Apples');
+    expect(ui2.taskTiles[1].checkbox.text).toBe('Milk');
+    expect(sentTypes).toEqual([]);
+
+    // Bluetooth peerSocket opens → triggers background FETCH_TASKS while cached items remain visible
+    connected = true;
+    watchApp.onConnectionChange(true);
+    expect(sentTypes).toEqual(['FETCH_TASKS']);
+    expect(ui2.status.text).toBe('Syncing...');
+    expect(ui2.taskTiles[0].checkbox.text).toBe('Apples');
+    expect(ui2.taskTiles[1].checkbox.text).toBe('Milk');
+
+    // Background reply arrives with new item from Nextcloud
+    await flushPromises();
+    while (deliveredReplies.length > 0) {
+      deliveredReplies.shift()!();
+    }
+    expect(ui2.status.text).toBe('3 left');
+    const renderedSummaries = [0, 1, 2].map((i) => ui2.taskTiles[i].checkbox.text);
+    expect(renderedSummaries).toContain('Bread');
+  });
+
+  it('defines explicit 58px tile heights in Fitbit GUI and CSS so Versa 2 renders multiple list items at once', () => {
+    const gui = fsNode.readFileSync(path.resolve(__dirname, '../resources/index.gui'), 'utf8');
+    const css = fsNode.readFileSync(path.resolve(__dirname, '../resources/styles.css'), 'utf8');
+    expect(css).toMatch(/\.tile-list-item\s*\{[^}]*height:\s*58;/);
+    expect(gui).toMatch(/<symbol\s+id="list-item"\s+height="58">/);
+    expect(gui).toMatch(/<use\s+id="list-tile-list"\s+href="#tile-list-item"\s+class="tile-list-item"\s+height="58">/);
   });
 
   it('immediately renders cached list on restart and reconciles: newer server edits win, newer watch toggles sync up', async () => {

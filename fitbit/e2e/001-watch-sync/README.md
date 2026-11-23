@@ -12,12 +12,13 @@ As a Versa 2 user, I want to pick between my CalDAV task lists, check off items 
 
 ---
 
-## Selecting Shopping loads tasks sorted by category order (Produce → Bakery → Dairy)
+## Selecting Shopping opens the top-level list view sorted by category (Produce → Bakery → Dairy); hardware Back exits cleanly
 
-![Selecting Shopping loads tasks sorted by category order (Produce → Bakery → Dairy)](./screenshots/001-initial-sync.png)
+![Selecting Shopping opens the top-level list view sorted by category (Produce → Bakery → Dairy); hardware Back exits cleanly](./screenshots/001-initial-sync.png)
 
 **Verifications:**
-- [x] Back (Lists) button is visible and status shows 3 left
+- [x] Lists sub-view button is visible and status shows 3 left
+- [x] Pressing Versa 2 hardware Back from top-level task list does not hijack exit or forget the selected list
 - [x] Items appear in category order: Apples, Sourdough, Milk
 
 ---
@@ -52,9 +53,9 @@ As a Versa 2 user, I want to pick between my CalDAV task lists, check off items 
 
 ---
 
-## User goes back to Lists and switches to the Hardware list
+## User opens the Lists sub-view and switches to the Hardware list
 
-![User goes back to Lists and switches to the Hardware list](./screenshots/005-switched-list.png)
+![User opens the Lists sub-view and switches to the Hardware list](./screenshots/005-switched-list.png)
 
 **Verifications:**
 - [x] Hardware list task Wood Screws is displayed

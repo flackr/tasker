@@ -138,7 +138,10 @@ function getCategoryLabel(task) {
  * Creates the Fitbit Versa 2 Watch App controller (ES5-safe).
  *
  * Features:
- * - Multi-list selection ('lists' view) + list detail ('tasks' view) with Back navigation
+ * - Top-level selected task list ('tasks' view) with a 'Lists' sub-view ('lists')
+ *   so pressing the Versa 2 hardware Back button from a task list exits the app
+ *   while remembering the selected list, and pressing Back inside the Lists
+ *   sub-view returns to the remembered list
  * - Local File Storage (`fs`) persistence for the list catalog (`tasker-lists.json`)
  *   and each loaded list's contents & unsynced toggles (`tasker-list-<hash>.json`)
  * - Immediate render from stored `fs` cache on restart while syncing in background
@@ -160,7 +163,7 @@ export function createWatchApp(options) {
   var reassembler = createChunkReassembler();
 
   var state = {
-    view: "lists", // "lists" | "tasks"
+    view: "lists", // "tasks" (top-level) | "lists" (sub-view)
     calendars: [],
     activeCalendarHref: undefined,
     items: [],
@@ -169,7 +172,6 @@ export function createWatchApp(options) {
     lastSyncedAt: undefined,
     syncing: false,
     error: "",
-    userNavigatedToLists: false,
   };
 
   function getActiveCalendarName() {
@@ -294,6 +296,7 @@ export function createWatchApp(options) {
 
   function render() {
     var inTasksView = state.view === "tasks";
+    var showNavBtn = inTasksView || Boolean(state.activeCalendarHref);
 
     if (listsViewEl) {
       listsViewEl.style.display = inTasksView ? "none" : "inline";
@@ -302,10 +305,11 @@ export function createWatchApp(options) {
       tasksViewEl.style.display = inTasksView ? "inline" : "none";
     }
     if (backBtn) {
-      backBtn.style.display = inTasksView ? "inline" : "none";
+      backBtn.style.display = showNavBtn ? "inline" : "none";
     }
     if (backBtnLabel) {
-      backBtnLabel.style.display = inTasksView ? "inline" : "none";
+      backBtnLabel.style.display = showNavBtn ? "inline" : "none";
+      backBtnLabel.text = inTasksView ? "Lists" : "Back";
     }
     if (statusEl) {
       statusEl.text = computeStatusText();
@@ -349,7 +353,6 @@ export function createWatchApp(options) {
 
   function selectList(calendarHref) {
     if (!calendarHref) return;
-    state.userNavigatedToLists = false;
     state.activeCalendarHref = calendarHref;
     state.view = "tasks";
     state.error = "";
@@ -377,18 +380,31 @@ export function createWatchApp(options) {
     }
   }
 
-  function goBack() {
-    if (state.view !== "tasks") {
-      return false;
+  function openListsView() {
+    if (state.view === "lists") {
+      return;
     }
-    state.userNavigatedToLists = true;
     state.view = "lists";
-    state.activeCalendarHref = undefined;
-    state.syncing = false;
     state.error = "";
-    persistIndex();
-    render();
-    return true;
+    if (isConnectedFn()) {
+      state.syncing = true;
+      render();
+      send({ type: "FETCH_LISTS" });
+    } else {
+      state.syncing = false;
+      render();
+    }
+  }
+
+  function goBack() {
+    if (state.view === "lists" && state.activeCalendarHref) {
+      state.view = "tasks";
+      state.syncing = false;
+      state.error = "";
+      render();
+      return true;
+    }
+    return false;
   }
 
   function toggleTask(idx) {
@@ -431,11 +447,16 @@ export function createWatchApp(options) {
     state.syncing = true;
     render();
 
-    // Always refresh available lists; if viewing a list, pull its tasks first
-    // so timestamp reconciliation runs BEFORE pushing any pending local toggles.
-    send({ type: "FETCH_LISTS" });
+    // When already viewing a remembered list, pull its task updates immediately
+    // while keeping the cached list displayed; only fetch lists if we don't have
+    // the catalog yet or are inside the Lists sub-view.
     if (state.view === "tasks" && state.activeCalendarHref) {
       send({ type: "FETCH_TASKS", calendarHref: state.activeCalendarHref });
+      if (state.calendars.length === 0) {
+        send({ type: "FETCH_LISTS" });
+      }
+    } else {
+      send({ type: "FETCH_LISTS" });
     }
   }
 
@@ -449,15 +470,14 @@ export function createWatchApp(options) {
       }
       if (Array.isArray(data.categoryOrder)) {
         state.categoryOrder = data.categoryOrder.slice();
+        if (state.items.length > 0) {
+          state.items = sortTasksByCategory(state.items, state.categoryOrder);
+        }
       }
 
-      // If we are on the lists screen on initial boot (user did not explicitly go back),
-      // auto-open the configured default list (or the only list if just 1 exists).
-      if (
-        state.view === "lists" &&
-        !state.activeCalendarHref &&
-        !state.userNavigatedToLists
-      ) {
+      // On first launch (when no list has ever been selected yet), auto-open the
+      // configured default list or the sole available list.
+      if (state.view === "lists" && !state.activeCalendarHref) {
         var autoTarget;
         if (data.defaultCalendarHref) {
           for (var i = 0; i < state.calendars.length; i++) {
@@ -577,7 +597,11 @@ export function createWatchApp(options) {
     }
     if (backBtn) {
       backBtn.onclick = function () {
-        goBack();
+        if (state.view === "tasks") {
+          openListsView();
+        } else {
+          goBack();
+        }
       };
     }
 
@@ -609,6 +633,7 @@ export function createWatchApp(options) {
     start: start,
     render: render,
     selectList: selectList,
+    openListsView: openListsView,
     goBack: goBack,
     toggleTask: toggleTask,
     requestSync: requestSync,

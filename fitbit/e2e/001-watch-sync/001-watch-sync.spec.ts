@@ -90,13 +90,22 @@ test('FIT-001: Versa 2 multi-list selection, category-sorted tasks, offline fs r
     await expect(page.getByTestId('watch-status')).toHaveText('3 left');
 
     await tester.step('initial-sync', {
-      description: 'Selecting Shopping loads tasks sorted by category order (Produce → Bakery → Dairy)',
+      description: 'Selecting Shopping opens the top-level list view sorted by category (Produce → Bakery → Dairy); hardware Back exits cleanly',
       verifications: [
         {
-          spec: 'Back (Lists) button is visible and status shows 3 left',
+          spec: 'Lists sub-view button is visible and status shows 3 left',
           check: async () => {
             await expect(page.getByTestId('watch-back-btn')).toBeVisible();
+            await expect(page.getByTestId('watch-back-btn')).toHaveText('Lists');
             await expect(page.getByTestId('watch-status')).toHaveText('3 left');
+          },
+        },
+        {
+          spec: 'Pressing Versa 2 hardware Back from top-level task list does not hijack exit or forget the selected list',
+          check: async () => {
+            const intercepted = await page.evaluate(() => window.__fitbitHarness.pressHardwareBack());
+            expect(intercepted).toBe(false);
+            await expect(page.getByTestId('watch-tasks-view')).toBeVisible();
           },
         },
         {
@@ -179,16 +188,28 @@ test('FIT-001: Versa 2 multi-list selection, category-sorted tasks, offline fs r
       ],
     });
 
-    // Navigate back to Lists picker and open Hardware list
+    // Open Lists sub-view (Back button closes sub-view back to remembered Shopping list)
     await page.getByTestId('watch-back-btn').click();
     await expect(page.getByTestId('watch-lists-view')).toBeVisible();
+    await expect(page.getByTestId('watch-back-btn')).toHaveText('Back');
+    await expect(page.getByTestId('watch-status')).toHaveText('Lists (2)');
     await expect(page.getByTestId('watch-list-item-0')).toContainText('1 left');
 
+    // Verify hardware Back inside the Lists sub-view returns to Shopping without exiting
+    const closedSubView = await page.evaluate(() => window.__fitbitHarness.pressHardwareBack());
+    expect(closedSubView).toBe(true);
+    await expect(page.getByTestId('watch-tasks-view')).toBeVisible();
+    await expect(page.getByTestId('watch-back-btn')).toHaveText('Lists');
+
+    // Open Lists sub-view again and switch to Hardware list
+    await page.getByTestId('watch-back-btn').click();
+    await expect(page.getByTestId('watch-lists-view')).toBeVisible();
+    await expect(page.getByTestId('watch-status')).toHaveText('Lists (2)');
     await page.getByTestId('watch-list-item-1').click();
     await expect(page.getByTestId('watch-item-0')).toContainText('Wood Screws');
 
     await tester.step('switched-list', {
-      description: 'User goes back to Lists and switches to the Hardware list',
+      description: 'User opens the Lists sub-view and switches to the Hardware list',
       verifications: [
         {
           spec: 'Hardware list task Wood Screws is displayed',

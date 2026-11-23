@@ -129,8 +129,8 @@ This document tracks all planned work towards building the complete tasker ecosy
 - [x] Update Companion Settings page (`fitbit/settings/index.jsx`) to configure Nextcloud URL, username, app password, and optional task list / config path
 - [x] Replace ad-hoc messaging with shared chunked protocol from `@tasker/core/watch` (`FETCH_LISTS`/`LISTS_PAYLOAD`, `TASKS_PAYLOAD`/`TASKS_CHUNK`, `UPDATE_TASK`, `UPDATE_ACK`, `ERROR`)
 - [x] Implement Watch App (`fitbit/app/watch-app.js` + `fitbit/app/index.js`) using `@tasker/core/watch`:
-  - [x] Support selecting between available VTODO lists and navigating back to switch lists (header Back button + Versa 2 hardware back key)
-  - [x] Render grocery tasks sorted by aisle with aisle labels on Versa 2 (`300×300` screen)
+  - [x] Use the remembered task list as the top-level view (hardware Back exits cleanly) with a compact (`58px` tile) **Lists** sub-view to switch between available VTODO lists
+  - [x] Render tasks sorted by category with category labels on Versa 2 (`300×300` screen)
   - [x] Persist list catalog (`tasker-lists.json`) and per-list contents + pending local toggles (`tasker-list-<id>.json`) via Fitbit File Storage (`fs`) so restarts immediately render the cached list while syncing in the background
   - [x] Timestamp-aware watch reconciliation (`reconcileWatchTasks`): prefer newer/equal server edits over older unsynced watch toggles, while syncing strictly newer unsynced watch toggles back to CalDAV
   - [x] Syncing / offline / pending / error status indicator and manual Sync button
