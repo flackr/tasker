@@ -1,7 +1,7 @@
 import { parseVTodo } from '@tasker/core';
 import { createMockCalDav } from '@tasker/mock-caldav';
 import { describe, expect, it } from 'vitest';
-import { createWatchApp } from '../app/watch-app.js';
+import { createWatchApp, getListCacheFilename } from '../app/watch-app.js';
 import { createCompanionSync } from '../companion/sync.js';
 
 function createMemorySettings(initial: Record<string, string> = {}) {
@@ -15,8 +15,9 @@ function createMemorySettings(initial: Record<string, string> = {}) {
 function createMemoryFs() {
   const files = new Map<string, unknown>();
   return {
+    files,
     readFileSync: (name: string) => {
-      if (!files.has(name)) throw new Error('ENOENT');
+      if (!files.has(name)) throw new Error(`ENOENT: ${name}`);
       return JSON.parse(JSON.stringify(files.get(name)));
     },
     writeFileSync: (name: string, data: unknown) => {
@@ -25,22 +26,46 @@ function createMemoryFs() {
   };
 }
 
-interface MockTile {
+interface MockTaskTile {
   display: string;
   checkbox: { text: string; value: number; onclick: (() => void) | null };
   aisle: { text: string };
 }
 
-function createMockWatchDocument(slotCount = 20) {
+interface MockListTile {
+  display: string;
+  title: { text: string };
+  subtitle: { text: string };
+  touch: { onclick: (() => void) | null };
+}
+
+function createMockWatchDocument(taskSlotCount = 20, listSlotCount = 10) {
   const status = { text: '' };
   const syncBtn = { onclick: null as (() => void) | null };
-  const tiles: MockTile[] = [];
+  const backBtn = {
+    style: { display: 'none' },
+    onclick: null as (() => void) | null,
+  };
+  const backBtnLabel = { style: { display: 'none' } };
+  const listsView = { style: { display: 'inline' } };
+  const tasksView = { style: { display: 'none' } };
 
-  for (let i = 0; i < slotCount; i++) {
-    tiles.push({
+  const taskTiles: MockTaskTile[] = [];
+  for (let i = 0; i < taskSlotCount; i++) {
+    taskTiles.push({
       display: 'none',
       checkbox: { text: '', value: 0, onclick: null },
       aisle: { text: '' },
+    });
+  }
+
+  const listTiles: MockListTile[] = [];
+  for (let i = 0; i < listSlotCount; i++) {
+    listTiles.push({
+      display: 'none',
+      title: { text: '' },
+      subtitle: { text: '' },
+      touch: { onclick: null },
     });
   }
 
@@ -48,11 +73,43 @@ function createMockWatchDocument(slotCount = 20) {
     getElementById(id: string) {
       if (id === 'status') return status;
       if (id === 'sync-btn') return syncBtn;
-      const match = /^item-(\d+)$/.exec(id);
-      if (match) {
-        const idx = Number(match[1]);
-        if (idx >= tiles.length) return null;
-        const tile = tiles[idx];
+      if (id === 'back-btn') return backBtn;
+      if (id === 'back-btn-label') return backBtnLabel;
+      if (id === 'lists-view') return listsView;
+      if (id === 'tasks-view') return tasksView;
+
+      const listMatch = /^list-item-(\d+)$/.exec(id);
+      if (listMatch) {
+        const idx = Number(listMatch[1]);
+        if (idx >= listTiles.length) return null;
+        const tile = listTiles[idx];
+        return {
+          getElementById(subId: string) {
+            if (subId === 'list-tile-list') {
+              return {
+                style: {
+                  get display() {
+                    return tile.display;
+                  },
+                  set display(val: string) {
+                    tile.display = val;
+                  },
+                },
+              };
+            }
+            if (subId === 'list-title') return tile.title;
+            if (subId === 'list-subtitle') return tile.subtitle;
+            if (subId === 'list-touch') return tile.touch;
+            return null;
+          },
+        };
+      }
+
+      const taskMatch = /^item-(\d+)$/.exec(id);
+      if (taskMatch) {
+        const idx = Number(taskMatch[1]);
+        if (idx >= taskTiles.length) return null;
+        const tile = taskTiles[idx];
         return {
           getElementById(subId: string) {
             if (subId === 'task-tile-list') {
@@ -77,10 +134,15 @@ function createMockWatchDocument(slotCount = 20) {
     },
   };
 
-  return { doc, status, syncBtn, tiles };
+  return { doc, status, syncBtn, backBtn, listsView, tasksView, taskTiles, listTiles };
 }
 
-function makeIcs(uid: string, summary: string, categories: string, extra?: string): string {
+function makeIcs(
+  uid: string,
+  summary: string,
+  categories: string,
+  options?: { status?: string; lastModified?: string; extra?: string },
+): string {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
@@ -88,35 +150,145 @@ function makeIcs(uid: string, summary: string, categories: string, extra?: strin
     `UID:${uid}`,
     `SUMMARY:${summary}`,
     `CATEGORIES:${categories}`,
-    'STATUS:NEEDS-ACTION',
-    'LAST-MODIFIED:20260501T100000Z',
+    `STATUS:${options?.status ?? 'NEEDS-ACTION'}`,
+    `LAST-MODIFIED:${options?.lastModified ?? '20260501T100000Z'}`,
   ];
-  if (extra) lines.push(extra);
+  if (options?.extra) lines.push(options.extra);
   lines.push('END:VTODO', 'END:VCALENDAR');
   return lines.join('\r\n');
 }
 
 async function flushPromises(): Promise<void> {
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 10; i++) {
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
 }
 
-describe('Fitbit Watch + Companion + MockCalDav end-to-end logic', () => {
-  it('syncs chunked tasks sorted by aisle, toggles losslessly, and survives offline restarts', async () => {
+describe('Fitbit Watch multi-list navigation, local fs persistence, and timestamp reconciliation', () => {
+  it('supports selecting between multiple lists, going back, and caching each list independently in fs', async () => {
+    const backend = createMockCalDav({
+      auth: { username: 'alice', password: 'secret' },
+      calendars: [
+        { slug: 'personal', displayName: 'Personal', components: ['VEVENT'] },
+        { slug: 'shopping', displayName: 'Shopping', components: ['VTODO'] },
+        { slug: 'hardware', displayName: 'Hardware', components: ['VTODO'] },
+      ],
+      tasks: [
+        { uid: 'milk', calendarSlug: 'shopping', etag: 'e1', ics: makeIcs('milk', 'Milk', 'Dairy') },
+        { uid: 'apples', calendarSlug: 'shopping', etag: 'e2', ics: makeIcs('apples', 'Apples', 'Produce') },
+        { uid: 'nails', calendarSlug: 'hardware', etag: 'h1', ics: makeIcs('nails', 'Wood Screws', 'Fasteners') },
+      ],
+      files: [
+        {
+          path: 'Notes/tasker-config.json',
+          content: JSON.stringify({ aisles: ['Produce', 'Dairy'] }),
+          contentType: 'application/json',
+        },
+      ],
+    });
+
+    const settingsStorage = createMemorySettings({
+      app_server: JSON.stringify({ name: 'https://cloud.example.com' }),
+      app_username: JSON.stringify({ name: 'alice' }),
+      app_password: JSON.stringify({ name: 'secret' }),
+      app_config_path: JSON.stringify({ name: 'Notes/tasker-config.json' }),
+    });
+
+    const fs = createMemoryFs();
+    const ui = createMockWatchDocument();
+
+    let watchApp: ReturnType<typeof createWatchApp>;
+    const companion = createCompanionSync({
+      settingsStorage,
+      fetch: backend.createFetch(),
+      maxChunkBytes: 220, // Exercise chunked TASKS_CHUNK transfer too
+      send: (msg: unknown) => watchApp.onMessage(msg),
+    });
+
+    watchApp = createWatchApp({
+      document: ui.doc,
+      fs,
+      send: (msg: unknown) => void companion.onMessage(msg),
+    });
+
+    watchApp.start();
+    await flushPromises();
+
+    // Multiple VTODO lists available → lands on lists view (VEVENT-only Personal excluded)
+    expect(ui.listsView.style.display).toBe('inline');
+    expect(ui.tasksView.style.display).toBe('none');
+    expect(ui.backBtn.style.display).toBe('none');
+    expect(ui.status.text).toBe('Lists (2)');
+    expect(ui.listTiles[0].title.text).toBe('Shopping');
+    expect(ui.listTiles[1].title.text).toBe('Hardware');
+    expect(ui.listTiles[2].display).toBe('none');
+
+    // Select Shopping
+    ui.listTiles[0].touch.onclick!();
+    await flushPromises();
+    expect(ui.tasksView.style.display).toBe('inline');
+    expect(ui.backBtn.style.display).toBe('inline');
+    expect(ui.status.text).toBe('2 left');
+    expect(ui.taskTiles[0].checkbox.text).toBe('Apples'); // Produce before Dairy
+    expect(ui.taskTiles[1].checkbox.text).toBe('Milk');
+
+    // Go back to lists picker
+    ui.backBtn.onclick!();
+    expect(ui.listsView.style.display).toBe('inline');
+    expect(ui.tasksView.style.display).toBe('none');
+    expect(ui.listTiles[0].subtitle.text).toBe('2 left');
+    expect(ui.listTiles[1].subtitle.text).toBe('Tap to load');
+
+    // Select Hardware
+    ui.listTiles[1].touch.onclick!();
+    await flushPromises();
+    expect(ui.status.text).toBe('1 left');
+    expect(ui.taskTiles[0].checkbox.text).toBe('Wood Screws');
+
+    // Verify separate per-list files exist in Fitbit fs
+    const shoppingFile = getListCacheFilename('/remote.php/dav/calendars/alice/shopping/');
+    const hardwareFile = getListCacheFilename('/remote.php/dav/calendars/alice/hardware/');
+    expect(fs.files.has('tasker-lists.json')).toBe(true);
+    expect(fs.files.has(shoppingFile)).toBe(true);
+    expect(fs.files.has(hardwareFile)).toBe(true);
+  });
+
+  it('immediately renders cached list on restart and reconciles: newer server edits win, newer watch toggles sync up', async () => {
+    const tBase = Date.parse('2026-05-01T10:00:00.000Z');
+    const tWatchOffline = Date.parse('2026-05-01T10:05:00.000Z');
+    const tServerNewer = '20260501T101000Z'; // 10:10 > watch's 10:05 → server wins!
+    const tServerOlder = '20260501T100200Z'; // 10:02 < watch's 10:05 → watch wins!
+
     const backend = createMockCalDav({
       auth: { username: 'alice', password: 'secret' },
       tasks: [
-        { uid: 'milk', calendarSlug: 'shopping', etag: 'e1', ics: makeIcs('milk', 'Milk', 'Dairy', 'X-OC-HIDESUBTASKS:0') },
-        { uid: 'apples', calendarSlug: 'shopping', etag: 'e2', ics: makeIcs('apples', 'Apples', 'Produce') },
-        { uid: 'bread', calendarSlug: 'shopping', etag: 'e3', ics: makeIcs('bread', 'Sourdough', 'Bakery') },
+        {
+          uid: 'milk',
+          calendarSlug: 'shopping',
+          etag: 'e1',
+          ics: makeIcs('milk', 'Milk', 'Dairy', {
+            status: 'NEEDS-ACTION',
+            lastModified: '20260501T100000Z',
+            extra: 'X-OC-HIDESUBTASKS:0',
+          }),
+        },
+        {
+          uid: 'apples',
+          calendarSlug: 'shopping',
+          etag: 'e2',
+          ics: makeIcs('apples', 'Apples', 'Produce', {
+            status: 'NEEDS-ACTION',
+            lastModified: '20260501T100000Z',
+            extra: 'X-PRESERVE:yes',
+          }),
+        },
       ],
       files: [
         {
           path: 'Notes/tasker-config.json',
           content: JSON.stringify({
             defaultCalendarHref: '/remote.php/dav/calendars/alice/shopping/',
-            aisles: ['Produce', 'Bakery', 'Dairy'],
+            aisles: ['Produce', 'Dairy'],
           }),
           contentType: 'application/json',
         },
@@ -131,116 +303,202 @@ describe('Fitbit Watch + Companion + MockCalDav end-to-end logic', () => {
     });
 
     const fs = createMemoryFs();
-    const { doc, status, tiles } = createMockWatchDocument();
     let connected = true;
-    const companionReceived: unknown[] = [];
-    const watchReceived: unknown[] = [];
+    let clockMs = tBase;
 
+    const ui1 = createMockWatchDocument();
     let watchApp: ReturnType<typeof createWatchApp>;
     const companion = createCompanionSync({
       settingsStorage,
       fetch: backend.createFetch(),
-      maxChunkBytes: 220, // Force chunked TASKS_CHUNK transfer!
       send: (msg: unknown) => {
-        watchReceived.push(msg);
-        if (connected) {
-          watchApp.onMessage(msg);
-        }
+        if (connected) watchApp.onMessage(msg);
       },
     });
 
     watchApp = createWatchApp({
-      document: doc,
+      document: ui1.doc,
       fs,
+      now: () => clockMs,
       isConnected: () => connected,
       send: (msg: unknown) => {
-        companionReceived.push(msg);
-        if (connected) {
-          void companion.onMessage(msg);
-        }
+        if (connected) void companion.onMessage(msg);
       },
     });
 
+    // Initial sync auto-opens default Shopping list
     watchApp.start();
     await flushPromises();
+    expect(ui1.status.text).toBe('2 left');
 
-    // Verify chunked messages were used and reassembled in aisle walk order
-    expect(watchReceived.some((m) => (m as { type: string }).type === 'TASKS_CHUNK')).toBe(true);
-    expect(status.text).toBe('3 left');
-    expect(tiles[0].checkbox.text).toBe('Apples');
-    expect(tiles[0].aisle.text).toBe('Produce');
-    expect(tiles[1].checkbox.text).toBe('Sourdough');
-    expect(tiles[2].checkbox.text).toBe('Milk');
-    expect(tiles[3].display).toBe('none');
-
-    // Tap Milk (index 2) online → lossless PUT preserving X-OC-HIDESUBTASKS
-    tiles[2].checkbox.onclick!();
-    await flushPromises();
-    expect(status.text).toBe('2 left');
-    const serverMilk = backend.getTasks('shopping').find((t) => t.uid === 'milk')!;
-    expect(serverMilk.ics).toContain('STATUS:COMPLETED');
-    expect(serverMilk.ics).toContain('X-OC-HIDESUBTASKS:0');
-
-    // Go offline, tap Apples, then simulate watch app restart from File Storage cache
+    // Go offline and check off BOTH Apples and Milk at 10:05
     connected = false;
     watchApp.onConnectionChange(false);
-    tiles[0].checkbox.onclick!();
-    expect(status.text).toBe('Offline (1 pending)');
+    clockMs = tWatchOffline;
+    ui1.taskTiles[0].checkbox.onclick!(); // Apples → completed at 10:05
+    ui1.taskTiles[1].checkbox.onclick!(); // Milk → completed at 10:05
+    expect(ui1.status.text).toBe('Offline (2 pending)');
 
-    // Restart watch app with fresh DOM but same fs cache while still offline
-    const restartedDom = createMockWatchDocument();
-    watchApp = createWatchApp({
-      document: restartedDom.doc,
-      fs,
-      isConnected: () => connected,
-      send: (msg: unknown) => {
-        if (connected) {
-          void companion.onMessage(msg);
-        }
-      },
+    // While watch is offline:
+    // - Server updates Milk at 10:10 (NEWER than 10:05) keeping it NEEDS-ACTION ("Organic Milk")
+    // - Server updates Apples summary at 10:02 (OLDER than 10:05) keeping it NEEDS-ACTION ("Honeycrisp Apples")
+    backend.setTask({
+      uid: 'milk',
+      calendarSlug: 'shopping',
+      etag: 'e1-newer',
+      ics: makeIcs('milk', 'Organic Milk', 'Dairy', {
+        status: 'NEEDS-ACTION',
+        lastModified: tServerNewer,
+        extra: 'X-OC-HIDESUBTASKS:0',
+      }),
     });
-    watchApp.start();
-    expect(restartedDom.status.text).toBe('Offline (1 pending)');
-    expect(restartedDom.tiles[0].checkbox.text).toBe('Apples');
-    expect(restartedDom.tiles[0].checkbox.value).toBe(1);
-
-    // Server concurrently edits Apples summary (triggers 412 on Companion PUT → auto-refresh + lossless retry!)
     backend.setTask({
       uid: 'apples',
       calendarSlug: 'shopping',
-      etag: 'etag-concurrent-edit',
-      ics: makeIcs('apples', 'Honeycrisp Apples', 'Produce', 'X-REMOTE-TAG:kept'),
+      etag: 'e2-older',
+      ics: makeIcs('apples', 'Honeycrisp Apples', 'Produce', {
+        status: 'NEEDS-ACTION',
+        lastModified: tServerOlder,
+        extra: 'X-PRESERVE:yes',
+      }),
     });
 
-    // Reconnect Bluetooth → pending toggle replays and reconciles
+    // Restart watch app while connected, capturing outgoing messages before async replies settle
     connected = true;
-    watchApp.onConnectionChange(true);
-    await flushPromises();
+    const ui2 = createMockWatchDocument();
+    const deliveredReplies: (() => void)[] = [];
+    const companion2 = createCompanionSync({
+      settingsStorage,
+      fetch: backend.createFetch(),
+      send: (msg: unknown) => {
+        deliveredReplies.push(() => watchApp.onMessage(msg));
+      },
+    });
 
-    expect(restartedDom.status.text).toBe('1 left');
+    watchApp = createWatchApp({
+      document: ui2.doc,
+      fs,
+      now: () => clockMs,
+      isConnected: () => connected,
+      send: (msg: unknown) => void companion2.onMessage(msg),
+    });
+
+    watchApp.start();
+
+    // IMMEDIATELY (synchronously before ANY server reply!), watch renders stored list from fs!
+    expect(ui2.tasksView.style.display).toBe('inline');
+    expect(ui2.taskTiles[0].checkbox.text).toBe('Apples');
+    expect(ui2.taskTiles[0].checkbox.value).toBe(1);
+    expect(ui2.taskTiles[1].checkbox.text).toBe('Milk');
+    expect(ui2.taskTiles[1].checkbox.value).toBe(1);
+    expect(ui2.status.text).toBe('Syncing...');
+
+    // Now let Companion async fetches and replies drain
+    for (let round = 0; round < 5; round++) {
+      await flushPromises();
+      while (deliveredReplies.length > 0) {
+        deliveredReplies.shift()!();
+      }
+    }
+
+    // Verify reconciliation outcome:
+    // - Milk (server 10:10 > watch 10:05): server won! Still NEEDS-ACTION ("Organic Milk"), NOT overwritten on server!
+    // - Apples (watch 10:05 > server 10:02): watch won! Synced COMPLETED up to server preserving server summary + X-PRESERVE!
+    expect(ui2.status.text).toBe('1 left');
+    expect(ui2.taskTiles[0].checkbox.text).toBe('Honeycrisp Apples');
+    expect(ui2.taskTiles[0].checkbox.value).toBe(1);
+    expect(ui2.taskTiles[1].checkbox.text).toBe('Organic Milk');
+    expect(ui2.taskTiles[1].checkbox.value).toBe(0);
+
+    const finalMilk = parseVTodo(backend.getTasks('shopping').find((t) => t.uid === 'milk')!.ics);
     const finalApples = parseVTodo(backend.getTasks('shopping').find((t) => t.uid === 'apples')!.ics);
+    expect(finalMilk.status).toBe('NEEDS-ACTION');
+    expect(finalMilk.summary).toBe('Organic Milk');
     expect(finalApples.status).toBe('COMPLETED');
     expect(finalApples.summary).toBe('Honeycrisp Apples');
-    expect(finalApples.rawIcs).toContain('X-REMOTE-TAG:kept');
+    expect(finalApples.rawIcs).toContain('X-PRESERVE:yes');
+  });
+
+  it('prefers newer server change on 412 conflict during in-flight UPDATE_TASK', async () => {
+    const backend = createMockCalDav({
+      auth: { username: 'alice', password: 'secret' },
+      tasks: [
+        {
+          uid: 'milk',
+          calendarSlug: 'shopping',
+          etag: 'e1',
+          ics: makeIcs('milk', 'Milk', 'Dairy', {
+            status: 'NEEDS-ACTION',
+            lastModified: '20260501T100000Z',
+          }),
+        },
+      ],
+    });
+
+    const settingsStorage = createMemorySettings({
+      app_server: JSON.stringify({ name: 'https://cloud.example.com' }),
+      app_username: JSON.stringify({ name: 'alice' }),
+      app_password: JSON.stringify({ name: 'secret' }),
+    });
+
+    const fs = createMemoryFs();
+    const ui = createMockWatchDocument();
+    let watchApp: ReturnType<typeof createWatchApp>;
+    const companion = createCompanionSync({
+      settingsStorage,
+      fetch: backend.createFetch(),
+      send: (msg: unknown) => watchApp.onMessage(msg),
+    });
+
+    watchApp = createWatchApp({
+      document: ui.doc,
+      fs,
+      now: () => Date.parse('2026-05-01T10:05:00.000Z'),
+      send: (msg: unknown) => void companion.onMessage(msg),
+    });
+
+    watchApp.start();
+    await flushPromises();
+    expect(ui.status.text).toBe('1 left');
+
+    // Another device updates Milk at 10:15 (strictly newer than watch's 10:05 toggle)
+    backend.setTask({
+      uid: 'milk',
+      calendarSlug: 'shopping',
+      etag: 'e2-newer',
+      ics: makeIcs('milk', 'Milk', 'Dairy', {
+        status: 'NEEDS-ACTION',
+        lastModified: '20260501T101500Z',
+      }),
+    });
+
+    // Watch taps Milk at 10:05 → Companion hits 412, refreshes, sees 10:15 > 10:05 → server wins!
+    ui.taskTiles[0].checkbox.onclick!();
+    await flushPromises();
+
+    expect(ui.taskTiles[0].checkbox.value).toBe(0);
+    expect(ui.status.text).toBe('1 left');
+    const serverMilk = parseVTodo(backend.getTasks('shopping')[0].ics);
+    expect(serverMilk.status).toBe('NEEDS-ACTION');
   });
 
   it('surfaces clear error message when credentials are missing', async () => {
     const fs = createMemoryFs();
-    const { doc, status } = createMockWatchDocument();
+    const ui = createMockWatchDocument();
     let watchApp: ReturnType<typeof createWatchApp>;
     const companion = createCompanionSync({
       settingsStorage: createMemorySettings(),
       send: (msg: unknown) => watchApp.onMessage(msg),
     });
     watchApp = createWatchApp({
-      document: doc,
+      document: ui.doc,
       fs,
       send: (msg: unknown) => void companion.onMessage(msg),
     });
 
     watchApp.start();
     await flushPromises();
-    expect(status.text).toContain('Err:');
-    expect(status.text).toContain('credentials');
+    expect(ui.status.text).toContain('Err:');
+    expect(ui.status.text).toContain('credentials');
   });
 });

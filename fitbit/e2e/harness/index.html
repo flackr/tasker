@@ -29,19 +29,31 @@
         flex-shrink: 0;
         background: #111827;
         border-bottom: 2px solid #1f2937;
-        padding: 0 10px;
+        padding: 0 8px;
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 8px;
+        gap: 6px;
+      }
+      #back-btn {
+        background: #374151;
+        color: #ffffff;
+        border: 0;
+        border-radius: 6px;
+        padding: 4px 8px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        flex-shrink: 0;
       }
       #status {
-        font-size: 16px;
+        font-size: 15px;
         font-weight: 600;
         color: #e5e7eb;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        flex: 1;
       }
       #sync-btn {
         background: #2563eb;
@@ -54,7 +66,7 @@
         cursor: pointer;
         flex-shrink: 0;
       }
-      #checklist {
+      .watch-view {
         flex: 1;
         overflow-y: auto;
         overflow-x: hidden;
@@ -96,6 +108,12 @@
         color: #60a5fa;
         margin-top: 2px;
       }
+      .watch-chevron {
+        color: #6b7280;
+        display: flex;
+        align-items: center;
+        flex-shrink: 0;
+      }
       .watch-checkbox-box {
         width: 26px;
         height: 26px;
@@ -105,9 +123,6 @@
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
-        font-size: 17px;
-        font-weight: 700;
-        color: #ffffff;
       }
       .watch-tile[data-checked="1"] .watch-checkbox-box {
         background: #22c55e;

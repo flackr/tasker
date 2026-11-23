@@ -12,5 +12,5 @@ asap.onmessage = (data) => {
 };
 
 settingsStorage.onchange = () => {
-  companion.handleFetchTasks();
+  companion.handleFetchLists();
 };

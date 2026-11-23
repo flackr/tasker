@@ -1,15 +1,18 @@
 import type { CompactTask, TaskStatus } from './watch/index.js';
 
 export type {
+  AcknowledgeWatchToggleMeta,
   AisleSortableTask,
   ChunkOptions,
   ChunkReassembler,
+  CompactCalendar,
   CompactTask,
   CompanionToWatchMessage,
   PendingWatchToggle,
   ReassembledTasksPayload,
   TasksChunkMessage,
   TaskStatus,
+  WatchReconcileResult,
   WatchStateUpdate,
   WatchToCompanionMessage,
 } from './watch/index.js';
@@ -79,6 +82,12 @@ export function toCompactTask(task: Task): CompactTask {
   };
   if (task.etag !== undefined) {
     compact.etag = task.etag;
+  }
+  if (task.lastModified !== undefined) {
+    const ms = Date.parse(task.lastModified);
+    if (!isNaN(ms)) {
+      compact.lastModified = ms;
+    }
   }
   return compact;
 }

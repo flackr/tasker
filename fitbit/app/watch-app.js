@@ -2,50 +2,120 @@ import {
   acknowledgeWatchToggle,
   applyOptimisticToggle,
   createChunkReassembler,
-  mergeWatchTasks,
+  reconcileWatchTasks,
   sortTasksByAisle,
 } from "@tasker/core/watch";
 
-var CACHE_FILE = "tasker-cache.json";
+var LISTS_INDEX_FILE = "tasker-lists.json";
+var LEGACY_CACHE_FILE = "tasker-cache.json";
 
-function readCache(fs) {
+/**
+ * Computes a short deterministic filename (ES5-safe FNV-1a 32-bit hex) for a
+ * calendar's per-list storage file on Fitbit OS File Storage.
+ */
+export function getListCacheFilename(calendarHref) {
+  var hash = 0x811c9dc5;
+  var input = String(calendarHref || "default");
+  for (var i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash =
+      (hash +
+        (hash << 1) +
+        (hash << 4) +
+        (hash << 7) +
+        (hash << 8) +
+        (hash << 24)) >>>
+      0;
+  }
+  var hex = hash.toString(16);
+  while (hex.length < 8) {
+    hex = "0" + hex;
+  }
+  return "tasker-list-" + hex + ".json";
+}
+
+function readJsonFile(fs, filename) {
   if (!fs || typeof fs.readFileSync !== "function") {
     return null;
   }
   try {
-    var data = fs.readFileSync(CACHE_FILE, "json");
+    var data = fs.readFileSync(filename, "json");
     if (data && typeof data === "object") {
-      return {
-        tasks: Array.isArray(data.tasks) ? data.tasks : [],
-        pending: Array.isArray(data.pending) ? data.pending : [],
-        aisleOrder: Array.isArray(data.aisleOrder) ? data.aisleOrder : [],
-        calendarHref: data.calendarHref,
-      };
+      return data;
     }
   } catch (e) {
-    // Missing cache file on first launch
+    // Missing file on first launch
   }
   return null;
 }
 
-function writeCache(fs, state) {
+function writeJsonFile(fs, filename, data) {
   if (!fs || typeof fs.writeFileSync !== "function") {
     return;
   }
   try {
-    fs.writeFileSync(
-      CACHE_FILE,
-      {
-        tasks: state.items,
-        pending: state.pending,
-        aisleOrder: state.aisleOrder,
-        calendarHref: state.calendarHref,
-      },
-      "json",
-    );
+    fs.writeFileSync(filename, data, "json");
   } catch (e) {
-    // Ignore storage quota errors cleanly
+    // Ignore storage errors cleanly
   }
+}
+
+function readListsIndex(fs) {
+  var data = readJsonFile(fs, LISTS_INDEX_FILE);
+  if (data) {
+    return {
+      calendars: Array.isArray(data.calendars) ? data.calendars : [],
+      activeCalendarHref: data.activeCalendarHref,
+      aisleOrder: Array.isArray(data.aisleOrder) ? data.aisleOrder : [],
+    };
+  }
+  // Backwards-compatible migration from single-file cache
+  var legacy = readJsonFile(fs, LEGACY_CACHE_FILE);
+  if (legacy && legacy.calendarHref) {
+    var migratedList = {
+      calendarHref: legacy.calendarHref,
+      tasks: Array.isArray(legacy.tasks) ? legacy.tasks : [],
+      pending: Array.isArray(legacy.pending) ? legacy.pending : [],
+      lastSyncedAt: legacy.lastSyncedAt,
+    };
+    writeJsonFile(fs, getListCacheFilename(legacy.calendarHref), migratedList);
+    return {
+      calendars: [{ href: legacy.calendarHref, displayName: "Tasks" }],
+      activeCalendarHref: legacy.calendarHref,
+      aisleOrder: Array.isArray(legacy.aisleOrder) ? legacy.aisleOrder : [],
+    };
+  }
+  return null;
+}
+
+function writeListsIndex(fs, state) {
+  writeJsonFile(fs, LISTS_INDEX_FILE, {
+    calendars: state.calendars,
+    activeCalendarHref: state.activeCalendarHref,
+    aisleOrder: state.aisleOrder,
+  });
+}
+
+function readListStore(fs, calendarHref) {
+  if (!calendarHref) return null;
+  var data = readJsonFile(fs, getListCacheFilename(calendarHref));
+  if (!data) return null;
+  return {
+    calendarHref: data.calendarHref || calendarHref,
+    tasks: Array.isArray(data.tasks) ? data.tasks : [],
+    pending: Array.isArray(data.pending) ? data.pending : [],
+    lastSyncedAt: data.lastSyncedAt,
+  };
+}
+
+function writeListStore(fs, calendarHref, tasks, pending, lastSyncedAt) {
+  if (!calendarHref) return;
+  writeJsonFile(fs, getListCacheFilename(calendarHref), {
+    calendarHref: calendarHref,
+    tasks: tasks,
+    pending: pending,
+    lastSyncedAt: lastSyncedAt,
+  });
 }
 
 function getAisleLabel(task) {
@@ -57,32 +127,86 @@ function getAisleLabel(task) {
 
 /**
  * Creates the Fitbit Versa 2 Watch App controller (ES5-safe).
- * Accepts injected `document`, `fs`, `send`, and `isConnected` so the exact
- * watch logic runs on Versa 2 hardware, in Vitest, and in the 300x300 Playwright harness.
+ *
+ * Features:
+ * - Multi-list selection ('lists' view) + list detail ('tasks' view) with Back navigation
+ * - Local File Storage (`fs`) persistence for the list catalog (`tasker-lists.json`)
+ *   and each loaded list's contents & unsynced toggles (`tasker-list-<hash>.json`)
+ * - Immediate render from stored `fs` cache on restart while syncing in background
+ * - Timestamp-aware reconciliation (`reconcileWatchTasks`) where newer server edits win
  */
 export function createWatchApp(options) {
   var doc = options.document;
   var fs = options.fs;
   var send = options.send;
   var isConnectedFn = options.isConnected || function () { return true; };
+  var nowFn = options.now || function () { return Date.now(); };
 
   var statusEl = doc.getElementById("status");
   var syncBtn = doc.getElementById("sync-btn");
+  var backBtn = doc.getElementById("back-btn");
+  var backBtnLabel = doc.getElementById("back-btn-label");
+  var listsViewEl = doc.getElementById("lists-view");
+  var tasksViewEl = doc.getElementById("tasks-view");
   var reassembler = createChunkReassembler();
 
   var state = {
+    view: "lists", // "lists" | "tasks"
+    calendars: [],
+    activeCalendarHref: undefined,
     items: [],
     pending: [],
     aisleOrder: [],
-    calendarHref: undefined,
+    lastSyncedAt: undefined,
     syncing: false,
     error: "",
+    userNavigatedToLists: false,
   };
+
+  function getActiveCalendarName() {
+    if (!state.activeCalendarHref) return "Tasks";
+    for (var i = 0; i < state.calendars.length; i++) {
+      if (state.calendars[i].href === state.activeCalendarHref) {
+        return state.calendars[i].displayName;
+      }
+    }
+    return "Tasks";
+  }
+
+  function computeListSubtitle(calendarHref) {
+    var stored = readListStore(fs, calendarHref);
+    if (!stored) {
+      return "Tap to load";
+    }
+    if (stored.pending.length > 0) {
+      return stored.pending.length + " pending";
+    }
+    var remaining = 0;
+    for (var i = 0; i < stored.tasks.length; i++) {
+      if (!stored.tasks[i].completed) remaining += 1;
+    }
+    if (stored.tasks.length === 0) return "Empty";
+    return remaining === 0 ? "All done" : remaining + " left";
+  }
 
   function computeStatusText() {
     if (state.error) {
       return "Err: " + state.error;
     }
+    if (state.view === "lists") {
+      if (!isConnectedFn()) {
+        return state.calendars.length > 0 ? "Offline - Lists" : "Offline";
+      }
+      if (state.syncing) {
+        return "Loading lists...";
+      }
+      if (state.calendars.length === 0) {
+        return "No lists";
+      }
+      return "Lists (" + state.calendars.length + ")";
+    }
+
+    // Tasks view status
     if (!isConnectedFn()) {
       if (state.pending.length > 0) {
         return "Offline (" + state.pending.length + " pending)";
@@ -105,11 +229,33 @@ export function createWatchApp(options) {
     return remaining === 0 ? "All done!" : remaining + " left";
   }
 
-  function render() {
-    if (statusEl) {
-      statusEl.text = computeStatusText();
-    }
+  function renderListsView() {
+    for (var i = 0;; i++) {
+      var tile = doc.getElementById("list-item-" + i);
+      if (!tile) break;
+      var tileList = tile.getElementById("list-tile-list");
+      if (state.calendars.length <= i) {
+        tileList.style.display = "none";
+        continue;
+      }
+      tileList.style.display = "inline";
+      var cal = state.calendars[i];
+      var titleEl = tile.getElementById("list-title");
+      var subEl = tile.getElementById("list-subtitle");
+      var touchEl = tile.getElementById("list-touch") || tileList;
 
+      if (titleEl) titleEl.text = cal.displayName;
+      if (subEl) subEl.text = computeListSubtitle(cal.href);
+
+      (function (href) {
+        touchEl.onclick = function () {
+          selectList(href);
+        };
+      })(cal.href);
+    }
+  }
+
+  function renderTasksView() {
     for (var i = 0;; i++) {
       var tile = doc.getElementById("item-" + i);
       if (!tile) break;
@@ -137,32 +283,121 @@ export function createWatchApp(options) {
     }
   }
 
-  function persist() {
-    writeCache(fs, state);
+  function render() {
+    var inTasksView = state.view === "tasks";
+
+    if (listsViewEl) {
+      listsViewEl.style.display = inTasksView ? "none" : "inline";
+    }
+    if (tasksViewEl) {
+      tasksViewEl.style.display = inTasksView ? "inline" : "none";
+    }
+    if (backBtn) {
+      backBtn.style.display = inTasksView ? "inline" : "none";
+    }
+    if (backBtnLabel) {
+      backBtnLabel.style.display = inTasksView ? "inline" : "none";
+    }
+    if (statusEl) {
+      statusEl.text = computeStatusText();
+    }
+
+    if (inTasksView) {
+      renderTasksView();
+    } else {
+      renderListsView();
+    }
   }
 
-  function flushPendingToggles() {
+  function persistIndex() {
+    writeListsIndex(fs, state);
+  }
+
+  function persistActiveList() {
+    if (!state.activeCalendarHref) return;
+    writeListStore(
+      fs,
+      state.activeCalendarHref,
+      state.items,
+      state.pending,
+      state.lastSyncedAt,
+    );
+  }
+
+  function sendPendingToggles(calendarHref, toggles) {
     if (!isConnectedFn()) return;
-    for (var i = 0; i < state.pending.length; i++) {
-      var entry = state.pending[i];
+    for (var i = 0; i < toggles.length; i++) {
+      var entry = toggles[i];
       send({
         type: "UPDATE_TASK",
         uid: entry.uid,
         completed: entry.completed,
-        calendarHref: state.calendarHref,
+        calendarHref: calendarHref,
+        updatedAt: entry.updatedAt,
       });
     }
   }
 
+  function selectList(calendarHref) {
+    if (!calendarHref) return;
+    state.userNavigatedToLists = false;
+    state.activeCalendarHref = calendarHref;
+    state.view = "tasks";
+    state.error = "";
+
+    var stored = readListStore(fs, calendarHref);
+    if (stored) {
+      state.items = sortTasksByAisle(stored.tasks, state.aisleOrder);
+      state.pending = stored.pending;
+      state.lastSyncedAt = stored.lastSyncedAt;
+    } else {
+      state.items = [];
+      state.pending = [];
+      state.lastSyncedAt = undefined;
+    }
+
+    persistIndex();
+
+    if (isConnectedFn()) {
+      state.syncing = true;
+      render();
+      send({ type: "FETCH_TASKS", calendarHref: calendarHref });
+    } else {
+      state.syncing = false;
+      render();
+    }
+  }
+
+  function goBack() {
+    if (state.view !== "tasks") {
+      return false;
+    }
+    state.userNavigatedToLists = true;
+    state.view = "lists";
+    state.activeCalendarHref = undefined;
+    state.syncing = false;
+    state.error = "";
+    persistIndex();
+    render();
+    return true;
+  }
+
   function toggleTask(idx) {
-    if (idx < 0 || idx >= state.items.length) return;
+    if (state.view !== "tasks" || idx < 0 || idx >= state.items.length) return;
     var target = state.items[idx];
     var nextCompleted = !target.completed;
-    var updated = applyOptimisticToggle(state.items, state.pending, target.uid, nextCompleted);
+    var timestamp = nowFn();
+    var updated = applyOptimisticToggle(
+      state.items,
+      state.pending,
+      target.uid,
+      nextCompleted,
+      timestamp,
+    );
     state.items = updated.tasks;
     state.pending = updated.pending;
     state.error = "";
-    persist();
+    persistActiveList();
     render();
 
     if (isConnectedFn()) {
@@ -170,7 +405,8 @@ export function createWatchApp(options) {
         type: "UPDATE_TASK",
         uid: target.uid,
         completed: nextCompleted,
-        calendarHref: state.calendarHref,
+        calendarHref: state.activeCalendarHref,
+        updatedAt: timestamp,
       });
     }
   }
@@ -182,38 +418,132 @@ export function createWatchApp(options) {
       render();
       return;
     }
+
     state.syncing = true;
     render();
-    flushPendingToggles();
-    send({ type: "FETCH_TASKS", calendarHref: state.calendarHref });
+
+    // Always refresh available lists; if viewing a list, pull its tasks first
+    // so timestamp reconciliation runs BEFORE pushing any pending local toggles.
+    send({ type: "FETCH_LISTS" });
+    if (state.view === "tasks" && state.activeCalendarHref) {
+      send({ type: "FETCH_TASKS", calendarHref: state.activeCalendarHref });
+    }
   }
 
   function onMessage(data) {
     if (!data || typeof data !== "object") return;
 
-    if (data.type === "TASKS_PAYLOAD" || data.type === "TASKS_CHUNK") {
+    if (data.type === "LISTS_PAYLOAD") {
+      state.error = "";
+      if (Array.isArray(data.calendars)) {
+        state.calendars = data.calendars.slice();
+      }
+      if (Array.isArray(data.aisleOrder)) {
+        state.aisleOrder = data.aisleOrder.slice();
+      }
+
+      // If we are on the lists screen on initial boot (user did not explicitly go back),
+      // auto-open the configured default list (or the only list if just 1 exists).
+      if (
+        state.view === "lists" &&
+        !state.activeCalendarHref &&
+        !state.userNavigatedToLists
+      ) {
+        var autoTarget;
+        if (data.defaultCalendarHref) {
+          for (var i = 0; i < state.calendars.length; i++) {
+            if (state.calendars[i].href === data.defaultCalendarHref) {
+              autoTarget = data.defaultCalendarHref;
+              break;
+            }
+          }
+        }
+        if (!autoTarget && state.calendars.length === 1) {
+          autoTarget = state.calendars[0].href;
+        }
+        if (autoTarget) {
+          persistIndex();
+          selectList(autoTarget);
+          return;
+        }
+      }
+
+      if (state.view === "lists") {
+        state.syncing = false;
+      }
+      persistIndex();
+      render();
+    } else if (data.type === "TASKS_PAYLOAD" || data.type === "TASKS_CHUNK") {
       var payload = reassembler.accept(data);
       if (!payload) return;
 
-      state.syncing = false;
-      state.error = "";
-      if (payload.calendarHref !== undefined) {
-        state.calendarHref = payload.calendarHref;
-      }
-      if (payload.aisleOrder !== undefined) {
+      var targetHref = payload.calendarHref || state.activeCalendarHref;
+      if (Array.isArray(payload.aisleOrder)) {
         state.aisleOrder = payload.aisleOrder.slice();
+        persistIndex();
       }
-      var merged = mergeWatchTasks(payload.tasks, state.pending);
-      state.items = sortTasksByAisle(merged, state.aisleOrder);
-      persist();
+
+      var isActive = targetHref === state.activeCalendarHref;
+      var existingStore = isActive
+        ? { tasks: state.items, pending: state.pending }
+        : readListStore(fs, targetHref) || { tasks: [], pending: [] };
+
+      var reconciled = reconcileWatchTasks(payload.tasks, existingStore.pending);
+      var sorted = sortTasksByAisle(reconciled.tasks, state.aisleOrder);
+      var syncedAt = nowFn();
+
+      writeListStore(fs, targetHref, sorted, reconciled.pending, syncedAt);
+
+      if (isActive) {
+        state.syncing = false;
+        state.error = "";
+        state.items = sorted;
+        state.pending = reconciled.pending;
+        state.lastSyncedAt = syncedAt;
+      }
+
       render();
+
+      // Push only local pending toggles that survived timestamp reconciliation (newer than server)
+      if (reconciled.togglesToSync.length > 0) {
+        sendPendingToggles(targetHref, reconciled.togglesToSync);
+      }
     } else if (data.type === "UPDATE_ACK") {
-      var acked = acknowledgeWatchToggle(state.items, state.pending, data.uid, data.etag);
-      state.items = acked.tasks;
-      state.pending = acked.pending;
-      state.error = "";
-      persist();
-      render();
+      var ackHref = data.calendarHref || state.activeCalendarHref;
+      var ackMeta = {
+        etag: data.etag,
+        completed: data.completed,
+        lastModified: data.lastModified,
+      };
+
+      if (ackHref === state.activeCalendarHref) {
+        var acked = acknowledgeWatchToggle(state.items, state.pending, data.uid, ackMeta);
+        state.items = acked.tasks;
+        state.pending = acked.pending;
+        state.error = "";
+        persistActiveList();
+        render();
+      } else if (ackHref) {
+        var other = readListStore(fs, ackHref);
+        if (other) {
+          var otherAcked = acknowledgeWatchToggle(
+            other.tasks,
+            other.pending,
+            data.uid,
+            ackMeta,
+          );
+          writeListStore(
+            fs,
+            ackHref,
+            otherAcked.tasks,
+            otherAcked.pending,
+            other.lastSyncedAt,
+          );
+          if (state.view === "lists") {
+            render();
+          }
+        }
+      }
     } else if (data.type === "ERROR") {
       state.syncing = false;
       state.error = data.message || "Sync failed";
@@ -236,15 +566,32 @@ export function createWatchApp(options) {
         requestSync();
       };
     }
-
-    var cached = readCache(fs);
-    if (cached) {
-      state.aisleOrder = cached.aisleOrder;
-      state.calendarHref = cached.calendarHref;
-      state.pending = cached.pending;
-      state.items = sortTasksByAisle(cached.tasks, state.aisleOrder);
+    if (backBtn) {
+      backBtn.onclick = function () {
+        goBack();
+      };
     }
 
+    // Immediately restore cached list catalog and last-opened list from Fitbit File Storage
+    var index = readListsIndex(fs);
+    if (index) {
+      state.calendars = index.calendars;
+      state.aisleOrder = index.aisleOrder;
+      state.activeCalendarHref = index.activeCalendarHref;
+      if (state.activeCalendarHref) {
+        state.view = "tasks";
+        var storedList = readListStore(fs, state.activeCalendarHref);
+        if (storedList) {
+          state.items = sortTasksByAisle(storedList.tasks, state.aisleOrder);
+          state.pending = storedList.pending;
+          state.lastSyncedAt = storedList.lastSyncedAt;
+        }
+      } else {
+        state.view = "lists";
+      }
+    }
+
+    // Render cached UI immediately, then sync changes in the background
     render();
     requestSync();
   }
@@ -252,16 +599,21 @@ export function createWatchApp(options) {
   return {
     start: start,
     render: render,
+    selectList: selectList,
+    goBack: goBack,
     toggleTask: toggleTask,
     requestSync: requestSync,
     onMessage: onMessage,
     onConnectionChange: onConnectionChange,
     getState: function () {
       return {
+        view: state.view,
+        calendars: state.calendars.slice(),
+        activeCalendarHref: state.activeCalendarHref,
+        activeCalendarName: getActiveCalendarName(),
         items: state.items.slice(),
         pending: state.pending.slice(),
         aisleOrder: state.aisleOrder.slice(),
-        calendarHref: state.calendarHref,
         status: computeStatusText(),
       };
     },

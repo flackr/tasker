@@ -14,6 +14,15 @@ const app = createWatchApp({
   isConnected: () => messaging.peerSocket.readyState === messaging.peerSocket.OPEN,
 });
 
+// Intercept Versa 2 hardware back button when viewing a list to return to the list picker
+document.onkeypress = (evt) => {
+  if (evt && evt.key === "back") {
+    if (app.goBack()) {
+      evt.preventDefault();
+    }
+  }
+};
+
 asap.onmessage = (data) => {
   app.onMessage(data);
 };

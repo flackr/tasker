@@ -10,9 +10,11 @@ import { createCompanionSync } from '../../companion/sync.js';
 
 interface HarnessApi {
   setOnline(online: boolean): void;
+  setFixedNow(epochMs: number | null): void;
   configureSettings(entries: Record<string, string>): void;
   getWatchState(): unknown;
-  getCachedFile(): unknown;
+  listFsFiles(): string[];
+  readFsFile(filename: string): unknown;
 }
 
 declare global {
@@ -24,10 +26,9 @@ declare global {
 const FS_PREFIX = 'fitbit-fs:';
 const SETTINGS_PREFIX = 'fitbit-settings:';
 
-// Parse the real Fitbit index.gui to determine the declared tile slot IDs (item-0..N)
-function extractTileIds(guiXml: string): string[] {
+function extractIds(guiXml: string, prefix: string): string[] {
   const ids: string[] = [];
-  const regex = /<use\s+id="(item-\d+)"/g;
+  const regex = new RegExp(`<use\\s+id="(${prefix}\\d+)"`, 'g');
   let match: RegExpExecArray | null;
   while ((match = regex.exec(guiXml)) !== null) {
     ids.push(match[1]);
@@ -35,18 +36,26 @@ function extractTileIds(guiXml: string): string[] {
   return ids;
 }
 
-function createBrowserFitbitDocument(root: HTMLElement, tileIds: string[]) {
+function createBrowserFitbitDocument(
+  root: HTMLElement,
+  listTileIds: string[],
+  taskTileIds: string[],
+) {
   root.innerHTML = `
     <div class="watch-header">
+      <button id="back-btn" type="button" data-testid="watch-back-btn" style="display:none">Lists</button>
       <div id="status" data-testid="watch-status">Loading...</div>
       <button id="sync-btn" type="button" data-testid="watch-sync-btn">Sync</button>
     </div>
-    <div id="checklist" data-testid="watch-checklist"></div>
+    <div id="lists-view" class="watch-view" data-testid="watch-lists-view"></div>
+    <div id="tasks-view" class="watch-view" data-testid="watch-tasks-view" style="display:none"></div>
   `;
 
+  const backDom = root.querySelector<HTMLButtonElement>('#back-btn')!;
   const statusDom = root.querySelector<HTMLDivElement>('#status')!;
   const syncDom = root.querySelector<HTMLButtonElement>('#sync-btn')!;
-  const checklistDom = root.querySelector<HTMLDivElement>('#checklist')!;
+  const listsViewDom = root.querySelector<HTMLDivElement>('#lists-view')!;
+  const tasksViewDom = root.querySelector<HTMLDivElement>('#tasks-view')!;
 
   const statusEl = {
     get text() {
@@ -63,9 +72,128 @@ function createBrowserFitbitDocument(root: HTMLElement, tileIds: string[]) {
     },
   };
 
-  const tileMap = new Map<string, ReturnType<typeof makeTile>>();
+  const backBtnEl = {
+    style: {
+      get display() {
+        return backDom.style.display;
+      },
+      set display(val: string) {
+        backDom.style.display = val === 'none' ? 'none' : 'inline-block';
+      },
+    },
+    set onclick(fn: (() => void) | null) {
+      backDom.onclick = fn;
+    },
+  };
 
-  function makeTile(id: string) {
+  const backBtnLabelEl = {
+    style: { display: 'none' },
+  };
+
+  const listsViewEl = {
+    style: {
+      get display() {
+        return listsViewDom.style.display;
+      },
+      set display(val: string) {
+        listsViewDom.style.display = val === 'none' ? 'none' : 'block';
+      },
+    },
+  };
+
+  const tasksViewEl = {
+    style: {
+      get display() {
+        return tasksViewDom.style.display;
+      },
+      set display(val: string) {
+        tasksViewDom.style.display = val === 'none' ? 'none' : 'block';
+      },
+    },
+  };
+
+  const listTileMap = new Map<string, ReturnType<typeof makeListTile>>();
+  const taskTileMap = new Map<string, ReturnType<typeof makeTaskTile>>();
+
+  function makeListTile(id: string) {
+    const row = document.createElement('div');
+    row.className = 'watch-tile';
+    row.dataset.testid = `watch-${id}`;
+    row.style.display = 'none';
+
+    const textWrap = document.createElement('div');
+    textWrap.className = 'watch-tile-text';
+
+    const titleDom = document.createElement('div');
+    titleDom.className = 'watch-summary';
+
+    const subDom = document.createElement('div');
+    subDom.className = 'watch-aisle';
+
+    const chevron = document.createElement('div');
+    chevron.className = 'watch-chevron';
+    chevron.innerHTML =
+      '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3.5L10.5 8L6 12.5" stroke="#9ca3af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+    textWrap.append(titleDom, subDom);
+    row.append(textWrap, chevron);
+    listsViewDom.appendChild(row);
+
+    let clickHandler: (() => void) | null = null;
+    row.addEventListener('click', () => {
+      if (clickHandler) clickHandler();
+    });
+
+    const tileList = {
+      style: {
+        get display() {
+          return row.style.display;
+        },
+        set display(val: string) {
+          row.style.display = val === 'none' ? 'none' : 'flex';
+        },
+      },
+    };
+
+    const title = {
+      get text() {
+        return titleDom.textContent ?? '';
+      },
+      set text(val: string) {
+        titleDom.textContent = val;
+      },
+    };
+
+    const subtitle = {
+      get text() {
+        return subDom.textContent ?? '';
+      },
+      set text(val: string) {
+        subDom.textContent = val;
+      },
+    };
+
+    const touch = {
+      get onclick() {
+        return clickHandler;
+      },
+      set onclick(fn: (() => void) | null) {
+        clickHandler = fn;
+      },
+    };
+
+    return {
+      getElementById(subId: string) {
+        if (subId === 'list-tile-list') return tileList;
+        if (subId === 'list-title') return title;
+        if (subId === 'list-subtitle') return subtitle;
+        if (subId === 'list-touch') return touch;
+        return null;
+      },
+    };
+  }
+
+  function makeTaskTile(id: string) {
     const row = document.createElement('div');
     row.className = 'watch-tile';
     row.dataset.testid = `watch-${id}`;
@@ -86,7 +214,7 @@ function createBrowserFitbitDocument(root: HTMLElement, tileIds: string[]) {
 
     textWrap.append(summaryEl, aisleEl);
     row.append(textWrap, boxEl);
-    checklistDom.appendChild(row);
+    tasksViewDom.appendChild(row);
 
     let clickHandler: (() => void) | null = null;
     row.addEventListener('click', () => {
@@ -147,15 +275,18 @@ function createBrowserFitbitDocument(root: HTMLElement, tileIds: string[]) {
     };
   }
 
-  for (const id of tileIds) {
-    tileMap.set(id, makeTile(id));
-  }
+  for (const id of listTileIds) listTileMap.set(id, makeListTile(id));
+  for (const id of taskTileIds) taskTileMap.set(id, makeTaskTile(id));
 
   return {
     getElementById(id: string) {
       if (id === 'status') return statusEl;
       if (id === 'sync-btn') return syncBtnEl;
-      return tileMap.get(id) ?? null;
+      if (id === 'back-btn') return backBtnEl;
+      if (id === 'back-btn-label') return backBtnLabelEl;
+      if (id === 'lists-view') return listsViewEl;
+      if (id === 'tasks-view') return tasksViewEl;
+      return listTileMap.get(id) ?? taskTileMap.get(id) ?? null;
     },
   };
 }
@@ -180,7 +311,6 @@ const fitbitSettingsStorage = {
   },
 };
 
-// Apply initial settings and online state from URL search params if provided
 const params = new URLSearchParams(window.location.search);
 for (const key of ['app_server', 'app_username', 'app_password', 'app_calendar', 'app_config_path']) {
   const val = params.get(key);
@@ -190,12 +320,14 @@ for (const key of ['app_server', 'app_username', 'app_password', 'app_calendar',
 }
 
 let isBluetoothOnline = params.get('offline') !== '1';
+const fixedNowParam = params.get('now');
+let fixedNowMs: number | null = fixedNowParam ? Number(fixedNowParam) : null;
 
 const watchScreen = document.querySelector<HTMLElement>('#watch-screen')!;
-const tileIds = extractTileIds(indexGuiXml);
-const fitbitDoc = createBrowserFitbitDocument(watchScreen, tileIds);
+const listTileIds = extractIds(indexGuiXml, 'list-item-');
+const taskTileIds = extractIds(indexGuiXml, 'item-');
+const fitbitDoc = createBrowserFitbitDocument(watchScreen, listTileIds, taskTileIds);
 
-// Wire the real Watch App ↔ in-memory Bluetooth bridge ↔ real Companion Sync
 let watchApp: ReturnType<typeof createWatchApp>;
 const companion = createCompanionSync({
   settingsStorage: fitbitSettingsStorage,
@@ -212,6 +344,7 @@ const companion = createCompanionSync({
 watchApp = createWatchApp({
   document: fitbitDoc,
   fs: fitbitFs,
+  now: () => (fixedNowMs !== null ? fixedNowMs : Date.now()),
   isConnected: () => isBluetoothOnline,
   send: (msg: unknown) => {
     if (!isBluetoothOnline) return;
@@ -224,20 +357,33 @@ window.__fitbitHarness = {
     isBluetoothOnline = online;
     watchApp.onConnectionChange(online);
   },
+  setFixedNow(epochMs: number | null) {
+    fixedNowMs = epochMs;
+  },
   configureSettings(entries: Record<string, string>) {
     for (const [k, v] of Object.entries(entries)) {
       fitbitSettingsStorage.setItem(k, JSON.stringify({ name: v }));
     }
     if (isBluetoothOnline) {
-      void companion.handleFetchTasks();
+      void companion.handleFetchLists();
     }
   },
   getWatchState() {
     return watchApp.getState();
   },
-  getCachedFile() {
+  listFsFiles() {
+    const names: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(FS_PREFIX)) {
+        names.push(k.slice(FS_PREFIX.length));
+      }
+    }
+    return names.sort();
+  },
+  readFsFile(filename: string) {
     try {
-      return fitbitFs.readFileSync('tasker-cache.json');
+      return fitbitFs.readFileSync(filename);
     } catch {
       return null;
     }

@@ -317,47 +317,63 @@ The Companion App runs on the paired smartphone (iOS or Android) inside the Fitb
 
 ### Bluetooth Communication Protocol
 
-All messages between Watch App and Companion App use the Fitbit **Messaging API** (`peerSocket`). Messages are plain JSON objects.
+All messages between Watch App and Companion App use the Fitbit **Messaging API** (`peerSocket` / `fitbit-asap`). Messages are plain JSON objects kept within Fitbit's message byte budget (task lists exceeding ~900 bytes are chunked into `TASKS_CHUNK` messages and reassembled on the watch via `@tasker/core/watch`).
 
 **Message types:**
 
 ```typescript
-// Watch → Companion: request the current task list
-{ type: "FETCH_TASKS"; calendarId: string }
+// Watch → Companion: request available VTODO task lists
+{ type: "FETCH_LISTS" }
 
-// Companion → Watch: deliver the task list
-{ type: "TASKS_PAYLOAD"; tasks: CompactTask[]; calendarId: string }
+// Companion → Watch: deliver available lists + shared aisle order
+{ type: "LISTS_PAYLOAD"; calendars: CompactCalendar[]; defaultCalendarHref?: string; aisleOrder?: string[] }
 
-// Watch → Companion: toggle a task's completion
-{ type: "UPDATE_TASK"; uid: string; completed: boolean; calendarId: string }
+// Watch → Companion: request a specific task list
+{ type: "FETCH_TASKS"; calendarHref?: string }
 
-// Companion → Watch: confirm the update was persisted
-{ type: "UPDATE_ACK"; uid: string; etag: string }
+// Companion → Watch: deliver a task list (or chunked via TASKS_CHUNK)
+{ type: "TASKS_PAYLOAD"; tasks: CompactTask[]; calendarHref?: string; aisleOrder?: string[] }
+
+// Watch → Companion: toggle a task's completion (includes watch-side timestamp)
+{ type: "UPDATE_TASK"; uid: string; completed: boolean; calendarHref?: string; updatedAt?: number }
+
+// Companion → Watch: confirm persistence (or report winning server state if server was newer)
+{ type: "UPDATE_ACK"; uid: string; calendarHref?: string; completed?: boolean; etag?: string; lastModified?: number }
 
 // Companion → Watch: report an error
 { type: "ERROR"; message: string }
 
-// Compact task representation sent over Bluetooth
+// Compact representations sent over Bluetooth
+interface CompactCalendar {
+  href: string;
+  displayName: string;
+}
+
 interface CompactTask {
   uid: string;
   summary: string;
   categories: string[];   // aisle tags
   completed: boolean;
-  etag: string;
+  etag?: string;
+  lastModified?: number;  // UTC epoch ms from CalDAV LAST-MODIFIED
 }
 ```
 
-Message size is kept minimal (< 1 KB per message) to respect Fitbit messaging limits.
+### Watch-side Multi-List Storage and Timestamp Reconciliation
 
-### Watch-side Caching and Sync
+The watch persists both the list catalog and each loaded list's tasks + unsynced local toggles using the **Fitbit File Storage API** (`fs.writeFileSync` / `fs.readFileSync`):
 
-The watch caches the last-known task list in the **Fitbit File Storage API** (`fs.writeFileSync` / `fs.readFileSync`). On startup:
+- `tasker-lists.json` — stores `{ calendars, activeCalendarHref, aisleOrder }`.
+- `tasker-list-<hash>.json` — one file per loaded calendar storing `{ calendarHref, tasks, pending, lastSyncedAt }`, where `pending` records unsynced local toggles `{ uid, completed, updatedAt }`.
 
-1. Read the cached list from File Storage and render it immediately.
-2. Send `FETCH_TASKS` to the Companion.
-3. When `TASKS_PAYLOAD` arrives, merge it with the cached list (union by UID, prefer server version) and re-render.
-
-If the Companion is unreachable (Bluetooth disconnected), the cached list is shown with a "offline" badge.
+On startup:
+1. Immediately read `tasker-lists.json` (and the active list's `tasker-list-<hash>.json` if a list was previously open) and render right away.
+2. In the background, send `FETCH_LISTS` and (when viewing a list) `FETCH_TASKS` to the Companion.
+3. When `TASKS_PAYLOAD` / `TASKS_CHUNK` arrives, run `reconcileWatchTasks(serverTasks, pending)` from `@tasker/core/watch`:
+   - If the server's `lastModified >= pending.updatedAt`, **the newer server change wins** — the watch updates its display to the server's state and discards the stale pending toggle.
+   - If the local watch toggle is strictly newer (`pending.updatedAt > server.lastModified`, or server has no `lastModified`), the watch preserves its local toggle and pushes `UPDATE_TASK` (carrying `updatedAt`) to the Companion.
+   - Tasks deleted on the server are pruned along with any pending toggles for them.
+4. From any open list, the user can tap **Lists** (or press the Versa 2 hardware Back button) to return to the list picker and switch to another task list.
 
 ---
 

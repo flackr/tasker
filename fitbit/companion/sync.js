@@ -22,6 +22,13 @@ function parseSettingValue(raw) {
   return String(raw).trim();
 }
 
+function parseTimestampMs(isoOrMs) {
+  if (typeof isoOrMs === "number") return isNaN(isoOrMs) ? null : isoOrMs;
+  if (!isoOrMs) return null;
+  const parsed = Date.parse(isoOrMs);
+  return isNaN(parsed) ? null : parsed;
+}
+
 export function readCompanionCredentials(settingsStorage) {
   const baseUrl = parseSettingValue(settingsStorage.getItem("app_server"));
   const username = parseSettingValue(settingsStorage.getItem("app_username"));
@@ -36,9 +43,10 @@ export function readCompanionCredentials(settingsStorage) {
   let calendarHref;
   if (calendarSetting) {
     if (calendarSetting.indexOf("/") !== -1) {
-      calendarHref = calendarSetting.charAt(calendarSetting.length - 1) === "/"
-        ? calendarSetting
-        : `${calendarSetting}/`;
+      calendarHref =
+        calendarSetting.charAt(calendarSetting.length - 1) === "/"
+          ? calendarSetting
+          : `${calendarSetting}/`;
     } else {
       calendarHref = `/remote.php/dav/calendars/${encodeURIComponent(username)}/${encodeURIComponent(calendarSetting)}/`;
     }
@@ -55,15 +63,26 @@ export function readCompanionCredentials(settingsStorage) {
 
 /**
  * Creates the Fitbit Companion CalDAV sync controller backed by `@tasker/core`.
- * Accepts injected `settingsStorage`, `send`, and optional `fetch` so the exact
- * same code runs on the smartphone Companion, in Vitest, and in Playwright E2E.
+ * Supports multi-list discovery (`FETCH_LISTS`), per-list task fetching (`FETCH_TASKS`),
+ * and timestamp-aware lossless updates (`UPDATE_TASK`) where newer server changes win.
  */
 export function createCompanionSync(options) {
   const { settingsStorage, send, fetch: fetchImpl, maxChunkBytes = 900 } = options;
 
   let activeCalendarHref = null;
   let aisleOrder = [];
-  const taskCache = new Map();
+  let cachedConfigDefaultHref;
+  /** Map<calendarHref, Map<uid, Task>> */
+  const cacheByCalendar = new Map();
+
+  function getCalendarTaskCache(calendarHref) {
+    let map = cacheByCalendar.get(calendarHref);
+    if (!map) {
+      map = new Map();
+      cacheByCalendar.set(calendarHref, map);
+    }
+    return map;
+  }
 
   function getClients() {
     const credentials = readCompanionCredentials(settingsStorage);
@@ -78,23 +97,26 @@ export function createCompanionSync(options) {
     };
   }
 
+  async function loadRemoteConfig(clients) {
+    cachedConfigDefaultHref = undefined;
+    if (!clients.credentials.configPath) return;
+    try {
+      const config = await clients.webdav.getJsonFile(clients.credentials.configPath);
+      if (config && Array.isArray(config.aisles)) {
+        aisleOrder = config.aisles.slice();
+      }
+      if (config && typeof config.defaultCalendarHref === "string") {
+        cachedConfigDefaultHref = config.defaultCalendarHref;
+      }
+    } catch {
+      // Non-fatal: missing config does not block sync
+    }
+  }
+
   async function resolveCalendarHref(clients, requestedHref) {
     if (requestedHref) return requestedHref;
     if (clients.credentials.calendarHref) return clients.credentials.calendarHref;
-
-    if (clients.credentials.configPath) {
-      try {
-        const config = await clients.webdav.getJsonFile(clients.credentials.configPath);
-        if (config && Array.isArray(config.aisles)) {
-          aisleOrder = config.aisles.slice();
-        }
-        if (config && config.defaultCalendarHref) {
-          return config.defaultCalendarHref;
-        }
-      } catch {
-        // Non-fatal: continue to calendar discovery
-      }
-    }
+    if (cachedConfigDefaultHref) return cachedConfigDefaultHref;
 
     const calendars = await clients.caldav.listTaskCalendars();
     if (!calendars.length) {
@@ -103,15 +125,34 @@ export function createCompanionSync(options) {
     return calendars[0].href;
   }
 
-  async function loadAisleConfig(clients) {
-    if (!clients.credentials.configPath) return;
+  async function handleFetchLists() {
+    const clients = getClients();
+    if (!clients) {
+      send({ type: "ERROR", message: "Set Nextcloud credentials in settings." });
+      return;
+    }
+
     try {
-      const config = await clients.webdav.getJsonFile(clients.credentials.configPath);
-      if (config && Array.isArray(config.aisles)) {
-        aisleOrder = config.aisles.slice();
-      }
-    } catch {
-      // Ignore missing remote config
+      await loadRemoteConfig(clients);
+      const calendars = await clients.caldav.listTaskCalendars();
+      const compactCalendars = calendars.map((c) => ({
+        href: c.href,
+        displayName: c.displayName,
+      }));
+      const defaultCalendarHref =
+        clients.credentials.calendarHref || cachedConfigDefaultHref || undefined;
+
+      send({
+        type: "LISTS_PAYLOAD",
+        calendars: compactCalendars,
+        defaultCalendarHref,
+        aisleOrder: aisleOrder.slice(),
+      });
+    } catch (error) {
+      send({
+        type: "ERROR",
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -123,14 +164,15 @@ export function createCompanionSync(options) {
     }
 
     try {
-      await loadAisleConfig(clients);
+      await loadRemoteConfig(clients);
       const calendarHref = await resolveCalendarHref(clients, requestedCalendarHref);
       activeCalendarHref = calendarHref;
 
       const tasks = await clients.caldav.fetchTasks(calendarHref);
-      taskCache.clear();
+      const calCache = getCalendarTaskCache(calendarHref);
+      calCache.clear();
       for (let i = 0; i < tasks.length; i++) {
-        taskCache.set(tasks[i].uid, tasks[i]);
+        calCache.set(tasks[i].uid, tasks[i]);
       }
 
       const compact = sortTasksByAisle(
@@ -154,7 +196,7 @@ export function createCompanionSync(options) {
     }
   }
 
-  async function handleUpdateTask(uid, completed, requestedCalendarHref) {
+  async function handleUpdateTask(uid, completed, requestedCalendarHref, updatedAt) {
     const clients = getClients();
     if (!clients) {
       send({ type: "ERROR", message: "Set Nextcloud credentials in settings." });
@@ -168,14 +210,15 @@ export function createCompanionSync(options) {
         (await resolveCalendarHref(clients));
       activeCalendarHref = calendarHref;
 
-      let existing = taskCache.get(uid);
+      const calCache = getCalendarTaskCache(calendarHref);
+      let existing = calCache.get(uid);
       if (!existing) {
         const fetched = await clients.caldav.fetchTasks(calendarHref);
-        taskCache.clear();
+        calCache.clear();
         for (let i = 0; i < fetched.length; i++) {
-          taskCache.set(fetched[i].uid, fetched[i]);
+          calCache.set(fetched[i].uid, fetched[i]);
         }
-        existing = taskCache.get(uid);
+        existing = calCache.get(uid);
       }
 
       if (!existing) {
@@ -183,14 +226,40 @@ export function createCompanionSync(options) {
         return;
       }
 
+      const localMs = parseTimestampMs(updatedAt);
+      const isServerNewerOrEqual = (serverTask) => {
+        if (localMs === null) return false;
+        const serverMs = parseTimestampMs(serverTask.lastModified);
+        return serverMs !== null && serverMs >= localMs;
+      };
+
+      const ackServerWinner = (serverTask) => {
+        calCache.set(uid, serverTask);
+        send({
+          type: "UPDATE_ACK",
+          uid,
+          calendarHref,
+          completed: serverTask.status === "COMPLETED",
+          etag: serverTask.etag,
+          lastModified: parseTimestampMs(serverTask.lastModified) ?? undefined,
+        });
+      };
+
+      // If cached server copy is already newer than the watch toggle, server wins immediately
+      if (isServerNewerOrEqual(existing)) {
+        ackServerWinner(existing);
+        return;
+      }
+
+      const writeTime = localMs !== null ? new Date(localMs) : new Date();
       const applyToggle = (baseTask) => {
-        const nowIso = new Date().toISOString();
+        const iso = writeTime.toISOString();
         return {
           ...baseTask,
           status: completed ? "COMPLETED" : "NEEDS-ACTION",
           percentComplete: completed ? 100 : 0,
-          completedAt: completed ? nowIso : undefined,
-          lastModified: nowIso,
+          completedAt: completed ? iso : undefined,
+          lastModified: iso,
         };
       };
 
@@ -199,28 +268,41 @@ export function createCompanionSync(options) {
       try {
         putResult = await clients.caldav.putTask(calendarHref, updated, {
           ifMatch: existing.etag,
+          now: writeTime,
         });
       } catch (err) {
         if (err instanceof CalDavError && err.code === "PRECONDITION_FAILED" && existing.href) {
-          // Refresh latest server copy and re-apply the user's watch toggle losslessly
           const fresh = await clients.caldav.getTask(existing.href, calendarHref);
+          // Re-check timestamp against fresh server copy: newer server edit wins!
+          if (isServerNewerOrEqual(fresh)) {
+            ackServerWinner(fresh);
+            return;
+          }
           updated = applyToggle(fresh);
           putResult = await clients.caldav.putTask(calendarHref, updated, {
             ifMatch: fresh.etag,
+            now: writeTime,
           });
         } else {
           throw err;
         }
       }
 
-      taskCache.set(uid, {
+      calCache.set(uid, {
         ...updated,
         href: putResult.href,
         etag: putResult.etag,
         rawIcs: putResult.ics,
       });
 
-      send({ type: "UPDATE_ACK", uid, etag: putResult.etag });
+      send({
+        type: "UPDATE_ACK",
+        uid,
+        calendarHref,
+        completed,
+        etag: putResult.etag,
+        lastModified: writeTime.getTime(),
+      });
     } catch (error) {
       send({
         type: "ERROR",
@@ -231,15 +313,18 @@ export function createCompanionSync(options) {
 
   async function onMessage(data) {
     if (!data || typeof data !== "object") return;
-    if (data.type === "FETCH_TASKS") {
+    if (data.type === "FETCH_LISTS") {
+      await handleFetchLists();
+    } else if (data.type === "FETCH_TASKS") {
       await handleFetchTasks(data.calendarHref);
     } else if (data.type === "UPDATE_TASK") {
-      await handleUpdateTask(data.uid, Boolean(data.completed), data.calendarHref);
+      await handleUpdateTask(data.uid, Boolean(data.completed), data.calendarHref, data.updatedAt);
     }
   }
 
   return {
     onMessage,
+    handleFetchLists,
     handleFetchTasks,
     handleUpdateTask,
   };
