@@ -1,6 +1,18 @@
 # tasker — Fitbit Versa 2 App (`@tasker/fitbit`)
 
-Grocery checklist watch app and smartphone companion app targeting **Fitbit Versa 2** (`mira`, Fitbit OS 4, `@fitbit/sdk ~4.3.0`).
+Task and grocery checklist watch app and smartphone companion app targeting **Fitbit Versa 2** (`mira`, Fitbit OS 4, `@fitbit/sdk ~4.3.0`).
+
+| Task List View | Lists Sub-View |
+|---|---|
+| ![Watch task list](e2e/001-watch-sync/screenshots/002-toggled-online.png) | ![Watch list picker](e2e/001-watch-sync/screenshots/000-list-picker.png) |
+
+## Using the Watch App
+
+- **Instant startup from local storage:** On launch, the watch immediately opens your last-used task list from Fitbit File Storage (`fs`) and refreshes updates from Nextcloud in the background once Bluetooth connects.
+- **Snappy check-offs:** Tapping an item toggles its checkbox immediately with zero Bluetooth wait and records the value + timestamp locally (`N unsynced` / `Offline (N pending)`). Changes are reconciled and pushed to Nextcloud on the next sync (tapping **Sync**, reconnecting Bluetooth, or relaunching the app). Newer server edits win if another device changed the same task more recently.
+- **Switching lists:** Tap **Lists** in the top-left header to open the **Lists** sub-view and pick another CalDAV VTODO list. Tap **Back** (or press the Versa 2 hardware Back button) inside the Lists sub-view to return to your current list.
+- **Clean exit:** Pressing the Versa 2 physical Back button from the top-level task list exits the app immediately while remembering your active list and flushing any pending local toggles to File Storage.
+- **Per-list categories:** When a **Config JSON Path** is set in Companion settings, each task list is sorted by its own `categoriesByCalendar` order (falling back to top-level `categories`) from `tasker-config.json`.
 
 ## Prerequisites
 

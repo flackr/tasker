@@ -1,115 +1,92 @@
 # tasker
 
-A local-first, Bring-Your-Own-Backend (BYOB) grocery and task management ecosystem. **tasker** uses your own [Nextcloud](https://nextcloud.com/) instance as the sole backend — there is no proprietary server, no vendor lock-in, and no subscription fee. All tasks are stored as standard CalDAV VTODO components, meaning they are fully portable and accessible from any CalDAV-compatible client.
+A local-first, Bring-Your-Own-Backend (BYOB) task and grocery list management system backed by [Nextcloud](https://nextcloud.com/) (or any standards-compliant CalDAV/WebDAV server). There is no proprietary server, no telemetry, and no vendor lock-in: every task is stored as a standard iCalendar `VTODO` object over CalDAV, and shared per-list category configuration lives in a single JSON file on WebDAV.
 
-## Features
+## Applications
 
-- **Offline-first Progressive Web App (PWA)** — works without an internet connection; changes sync automatically when connectivity is restored.
-- **Fitbit Versa 2 companion app** — browse and check off grocery items directly from your wrist.
-- **CalDAV-backed task storage** — every task is a standard `VTODO` object on your Nextcloud CalDAV server.
-- **Category-based sorting & on-device AI auto-categorization** — CalDAV `CATEGORIES` group and order tasks consistently across both clients, and browsers supporting the Web Prompt API (`LanguageModel`) can automatically categorize uncategorized items locally on-device.
-- **Full CRUD** — create, read, update, and delete tasks from any client; changes reconcile via Nextcloud.
+### Progressive Web App ([web/README.md](web/README.md))
+
+An offline-first, mobile-friendly Progressive Web App for managing multiple CalDAV task lists, customizing per-list categories, resolving offline conflicts, and auto-categorizing uncategorized items on-device using the browser Prompt API (`LanguageModel`).
+
+![tasker Progressive Web App](web/e2e/002-task-crud/screenshots/001-added-and-toggled.png)
+
+- Compact single-line header showing the active list and sync status (`Synced`, `Syncing…`, `Offline`)
+- Slide-over side drawer for switching task lists and accessing **Categories** and **Settings**
+- Floating `+` button for adding tasks, inline completion toggles, and full task editing
+- Per-list category ordering synced via `tasker-config.json` (with one-click creation if the file does not exist yet)
+- IndexedDB offline caching, Service Worker Background Sync, and manual `412` conflict resolution
+
+See **[web/README.md](web/README.md)** for setup, Nextcloud CORS configuration, and usage instructions.
+
+---
+
+### Fitbit Versa 2 App ([fitbit/README.md](fitbit/README.md))
+
+A wrist checklist watch app and smartphone companion app for **Fitbit Versa 2** (`mira`, Fitbit OS 4) that syncs your CalDAV task lists over Bluetooth so you can check off items while shopping.
+
+![tasker Fitbit Versa 2 App](fitbit/e2e/001-watch-sync/screenshots/002-toggled-online.png)
+
+- Launches immediately into your remembered task list from local Fitbit File Storage while refreshing updates in the background
+- Instant local check/uncheck (records timestamps locally without blocking the UI; syncs on tap of **Sync**, reconnect, or next launch)
+- Compact **Lists** sub-view to switch between available VTODO lists while hardware Back exits cleanly from the top-level list
+- Timestamp-aware reconciliation (newer server edits win; newer watch check-offs push losslessly to CalDAV)
+- Shares per-list category sorting with the web app via `tasker-config.json`
+
+See **[fitbit/README.md](fitbit/README.md)** for building, installing onto a Versa 2, and usage instructions.
+
+---
 
 ## Architecture Overview
 
-```
+```text
 ┌─────────────────────────────────────────────┐
 │               Nextcloud Instance             │
 │  ┌──────────────┐   ┌──────────────────────┐ │
 │  │  CalDAV       │   │  WebDAV              │ │
-│  │  (VTODO tasks)│   │  (JSON recipe files) │ │
+│  │  (VTODO tasks)│   │  (config & recipes)  │ │
 │  └──────────────┘   └──────────────────────┘ │
 └───────────────────────────┬─────────────────┘
-                            │ HTTPS
+                            │ HTTPS + App Password
                ┌────────────┴────────────┐
                │                         │
     ┌──────────▼──────────┐   ┌──────────▼──────────┐
-    │  PWA (browser)      │   │  Fitbit Companion    │
-    │  HTML/CSS/TypeScript│   │  (smartphone JS)     │
-    │  Vite + Service     │   │  ┌──────────────┐   │
-    │  Worker + IndexedDB │   │  │ Bluetooth BLE│   │
-    └─────────────────────┘   │  └──────┬───────┘   │
+    │  PWA (web/)         │   │  Fitbit Companion    │
+    │  TypeScript + Vite  │   │  (fitbit/companion/) │
+    │  IndexedDB + SW     │   │  ┌──────────────┐   │
+    └─────────────────────┘   │  │ Bluetooth BLE│   │
+                              │  └──────┬───────┘   │
                               └─────────┼────────────┘
-                                        │
+                                        │ Messaging API
                               ┌─────────▼───────────┐
                               │  Fitbit Watch App    │
-                              │  (Versa 2 UI)        │
+                              │  (fitbit/app/, OS 4) │
+                              │  File Storage API    │
                               └─────────────────────┘
 ```
 
-See [docs/DESIGN.md](docs/DESIGN.md) for the full technical design.
+Both clients share domain models, lossless `VTODO` parsing/serialization, CalDAV/WebDAV clients, category sorting, and sync logic via `@tasker/core` (`packages/core/`). See [docs/DESIGN.md](docs/DESIGN.md) for full technical details.
 
-## Prerequisites
+## Nextcloud Quick Prerequisites
 
-- A running [Nextcloud](https://nextcloud.com/) instance (self-hosted or managed).
-- A Nextcloud account with CalDAV enabled (enabled by default).
-- The **WebAppPassword** Nextcloud app installed on your server (required for CORS when using the PWA from a different origin such as GitHub Pages).
-
-## Nextcloud Setup
-
-### 1. Install the WebAppPassword App
-
-The PWA is served from a different origin than your Nextcloud instance (e.g., `https://<username>.github.io`). Browsers block cross-origin requests by default. The [WebAppPassword](https://apps.nextcloud.com/apps/webapppassword) Nextcloud app adds the required CORS headers so that the PWA can communicate directly with Nextcloud's CalDAV endpoint.
-
-1. Log in to your Nextcloud instance as an administrator.
-2. Go to **Apps** → search for **WebAppPassword** → click **Download and enable**.
-3. Go to **Settings** → **WebAppPassword**.
-4. Under **Allowed Origins**, add the origin from which the PWA is served, for example:
-   ```
-   https://<your-github-username>.github.io
-   ```
-   Add `http://localhost:5173` as well for local development.
-5. Save the settings.
-
-### 2. Create an App Password
-
-Nextcloud App Passwords let you authenticate a specific application without exposing your main account password.
-
-1. Log in to Nextcloud and go to **Settings** → **Security**.
-2. Scroll to **Devices & sessions** → **Create new app password**.
-3. Give it a name (e.g., `tasker-pwa`) and click **Create new app password**.
-4. Copy the generated password — you will need it when logging in to the PWA for the first time.
-
-### 3. Find Your CalDAV Endpoint
-
-The PWA needs your CalDAV base URL. In most Nextcloud installations it is:
-
-```
-https://<your-nextcloud-domain>/remote.php/dav/calendars/<your-username>/
-```
-
-You can confirm this in **Settings** → **Calendar** (in the calendar app's sidebar under "Copy private link").
-
-## Installation & Usage
-
-### PWA
-
-1. Open the hosted PWA at `https://<your-github-username>.github.io/tasker/` (or run it locally with `npm run dev`).
-2. On first launch, enter:
-   - **Nextcloud URL** — e.g., `https://cloud.example.com`
-   - **Username** — your Nextcloud username
-   - **App Password** — the password generated in step 2 above
-3. The app will fetch your task lists, cache them locally in IndexedDB, and keep them in sync via the Service Worker Background Sync API.
-
-### Fitbit Versa 2 App
-
-See [fitbit/README.md](fitbit/README.md) for step-by-step sideloading instructions (Developer Bridge, `@fitbit/sdk-cli`, and Companion App setup).
+- A running [Nextcloud](https://nextcloud.com/) instance with CalDAV enabled (default).
+- A dedicated **App Password** (**Personal Settings → Security → Devices & sessions → Create new app password**).
+- For the web app across origins (e.g., GitHub Pages): the [WebAppPassword](https://apps.nextcloud.com/apps/webapppassword) Nextcloud app configured with your PWA's origin (details in [web/README.md](web/README.md)).
 
 ## Local Development
 
-All packages (`packages/core`, `packages/mock-caldav`, `web`, and `fitbit`) are managed from the root npm workspace:
+All workspace packages (`packages/core`, `packages/mock-caldav`, `web`, and `fitbit`) are managed from the repository root:
 
 ```bash
 # Install all workspace dependencies
 npm install
 
-# Start the dev server (PWA)
+# Start the PWA development server
 npm run dev
 
 # Run unit and integration tests across all packages
 npm test
 
-# Run Playwright E2E + visual regression tests
+# Run Playwright E2E + zero-pixel visual regression tests (PWA + Fitbit)
 npm run test:e2e
 
 # Build core packages, web PWA, and Fitbit Versa 2 (.fba) bundle
@@ -120,9 +97,11 @@ npm run build
 
 | Document | Description |
 |---|---|
-| [docs/DESIGN.md](docs/DESIGN.md) | Full architecture and technical design |
-| [docs/TESTING.md](docs/TESTING.md) | Testing strategy and CI/CD setup |
-| [docs/BACKLOG.md](docs/BACKLOG.md) | Development backlog and roadmap |
+| [web/README.md](web/README.md) | PWA setup, Nextcloud CORS configuration, and usage guide |
+| [fitbit/README.md](fitbit/README.md) | Fitbit Versa 2 build, installation, companion setup, and usage guide |
+| [docs/DESIGN.md](docs/DESIGN.md) | Architecture, data models, CalDAV/WebDAV contracts, and sync protocols |
+| [docs/TESTING.md](docs/TESTING.md) | Test layers, mock CalDAV server, Playwright harnesses, and CI |
+| [docs/BACKLOG.md](docs/BACKLOG.md) | Development milestones and roadmap |
 
 ## License
 
