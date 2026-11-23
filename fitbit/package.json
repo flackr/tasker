@@ -1,0 +1,42 @@
+{
+  "name": "@tasker/fitbit",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "fitbit": {
+    "appUUID": "99c33526-f098-4b3b-a932-168e244bee40",
+    "appType": "app",
+    "appDisplayName": "Tasks",
+    "iconFile": "resources/icon.png",
+    "wipeColor": "#ffffff",
+    "requestedPermissions": [
+      "access_internet"
+    ],
+    "buildTargets": [
+      "mira"
+    ],
+    "i18n": {},
+    "defaultLanguage": "en-US"
+  },
+  "scripts": {
+    "build": "fitbit-build",
+    "debug": "fitbit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@tasker/core": "*",
+    "fitbit-asap": "^1.2.7"
+  },
+  "devDependencies": {
+    "@fitbit/sdk": "~4.3.0",
+    "@playwright/test": "^1.55.0",
+    "@tasker/mock-caldav": "*",
+    "vite": "^8.2.0",
+    "vitest": "^3.2.4"
+  },
+  "optionalDependencies": {
+    "@fitbit/sdk-cli": "^1.7.3"
+  }
+}

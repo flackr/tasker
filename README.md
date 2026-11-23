@@ -93,21 +93,26 @@ You can confirm this in **Settings** → **Calendar** (in the calendar app's sid
 
 ### Fitbit Versa 2 App
 
-See [docs/DESIGN.md § Fitbit Client](docs/DESIGN.md#fitbit-client) for sideloading instructions and Companion App setup.
+See [fitbit/README.md](fitbit/README.md) for step-by-step sideloading instructions (Developer Bridge, `@fitbit/sdk-cli`, and Companion App setup).
 
 ## Local Development
 
+All packages (`packages/core`, `packages/mock-caldav`, `web`, and `fitbit`) are managed from the root npm workspace:
+
 ```bash
-# Install dependencies
+# Install all workspace dependencies
 npm install
 
 # Start the dev server (PWA)
 npm run dev
 
-# Run tests
+# Run unit and integration tests across all packages
 npm test
 
-# Build for production
+# Run Playwright E2E + visual regression tests
+npm run test:e2e
+
+# Build core packages, web PWA, and Fitbit Versa 2 (.fba) bundle
 npm run build
 ```
 

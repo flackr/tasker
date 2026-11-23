@@ -1,0 +1,25 @@
+{
+  "name": "tasker-workspace",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "web",
+    "fitbit"
+  ],
+  "scripts": {
+    "build:core": "npm -w @tasker/core run build && npm -w @tasker/mock-caldav run build",
+    "build:web": "npm run build:core && npm -w @tasker/web run build",
+    "build:fitbit": "npm run build:core && npm -w @tasker/fitbit run build",
+    "build": "npm run build:core && npm -w @tasker/web run build && npm -w @tasker/fitbit run build",
+    "test": "npm run build:core && npm -w @tasker/core run test && npm -w @tasker/mock-caldav run test && npm -w @tasker/web run test && npm -w @tasker/fitbit run test",
+    "test:e2e": "npm run build:core && npm -w @tasker/web run test:e2e && npm -w @tasker/fitbit run test:e2e",
+    "dev": "npm run build:core && npm -w @tasker/web run dev"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.2",
+    "vitest": "^3.2.4"
+  },
+  "overrides": {
+    "@openid/appauth": "1.3.1"
+  }
+}

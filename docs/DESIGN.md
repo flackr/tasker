@@ -4,29 +4,30 @@
 
 1. [Goals and Principles](#goals-and-principles)
 2. [System Overview](#system-overview)
-3. [Backend: Nextcloud](#backend-nextcloud)
+3. [Workspace & Shared Core Architecture](#workspace--shared-core-architecture)
+4. [Backend: Nextcloud](#backend-nextcloud)
    - [CalDAV Task Storage](#caldav-task-storage)
    - [WebDAV Recipe Storage](#webdav-recipe-storage)
    - [Authentication](#authentication)
    - [CORS Configuration](#cors-configuration)
-4. [PWA Client](#pwa-client)
+5. [PWA Client](#pwa-client)
    - [Technology Stack](#pwa-technology-stack)
    - [Application Structure](#pwa-application-structure)
    - [CalDAV Data Flow](#caldav-data-flow)
    - [Offline Storage with IndexedDB](#offline-storage-with-indexeddb)
    - [Service Worker and Background Sync](#service-worker-and-background-sync)
    - [Conflict Resolution](#conflict-resolution)
-5. [Fitbit Client](#fitbit-client)
+6. [Fitbit Client](#fitbit-client)
    - [Watch App](#watch-app)
    - [Companion App](#companion-app)
    - [Bluetooth Communication Protocol](#bluetooth-communication-protocol)
    - [Watch-side Caching and Sync](#watch-side-caching-and-sync)
-6. [Data Model](#data-model)
+7. [Data Model](#data-model)
    - [Task (VTODO)](#task-vtodo)
    - [Aisle / Category](#aisle--category)
    - [Recipe (Markdown over WebDAV)](#recipe-markdown-over-webdav)
-7. [Sync Protocol](#sync-protocol)
-8. [Security Considerations](#security-considerations)
+8. [Sync Protocol](#sync-protocol)
+9. [Security Considerations](#security-considerations)
 
 ---
 
@@ -69,6 +70,38 @@
                               │  File Storage API    │
                               └─────────────────────┘
 ```
+
+---
+
+## Workspace & Shared Core Architecture
+
+Both the PWA and Fitbit clients live in a unified root npm workspace so domain models, CalDAV/iCalendar logic, grocery aisle sorting, and local-copy sync infrastructure are implemented once and shared across runtimes:
+
+```text
+tasker/
+├── package.json              # Root npm workspaces & unified build/test commands
+├── packages/
+│   ├── core/                 # @tasker/core — runtime-agnostic domain, VTODO, CalDAV, sync
+│   │   ├── src/watch/        # @tasker/core/watch — ES5-compiled watch-safe subset
+│   │   └── src/              # @tasker/core — ES2015-compiled full core
+│   └── mock-caldav/          # @tasker/mock-caldav — shared stateful mock CalDAV/WebDAV server
+├── web/                      # @tasker/web — PWA client (Vite + IndexedDB + Service Worker)
+└── fitbit/                   # @tasker/fitbit — Versa 2 Watch App, Companion, Settings
+```
+
+### Runtime Boundary Split
+
+The Fitbit Versa 2 (`mira`) requires `@fitbit/sdk ~4.3.0`, whose bundler (`rollup` + `typescript 4.2` + `terser`) compiles device code to **ES5** (JerryScript sandbox, very tight memory budget, no `fetch`/DOM) and companion/settings code to **ES2015**. To support all three targets cleanly without duplicating code:
+
+| Entry Point | Target | Consumers | Contents |
+|---|---|---|---|
+| `@tasker/core/watch` | ES5 ESM (`lib: ["ES5"]`) | Fitbit Watch App, Fitbit Companion, PWA | `CompactTask`, Watch↔Companion protocol types, `sortTasksByAisle`, watch-side merge/reconciliation helpers |
+| `@tasker/core` | ES2015 ESM (no DOM/Node globals) | PWA, Fitbit Companion, Vitest | Canonical `Task` & config models, lossless `VTODO` parser/serializer, runtime-agnostic XML + CalDAV/WebDAV clients (injectable `fetch`), storage-agnostic `TaskStore` / `SyncQueueStore` / `SyncEngine` & conflict resolution |
+
+Each platform provides a thin storage and UI adapter:
+- **PWA (`web/`):** IndexedDB storage adapter + Service Worker Background Sync + responsive web UI.
+- **Fitbit Companion (`fitbit/companion/`):** `@tasker/core` CalDAV client + `settingsStorage` credentials + Bluetooth messaging bridge (`fitbit-asap` / file-transfer).
+- **Fitbit Watch (`fitbit/app/`):** `@tasker/core/watch` + Fitbit File Storage (`fs`) cache/offline queue + SVG widget UI (`resources/`).
 
 ---
 

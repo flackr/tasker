@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES5",
+    "ignoreDeprecations": "6.0",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES5"],
+    "rootDir": "src/watch",
+    "outDir": "dist/watch",
+    "declaration": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/watch/**/*.ts"],
+  "exclude": ["src/watch/**/*.test.ts"]
+}

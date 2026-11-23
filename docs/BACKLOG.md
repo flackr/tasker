@@ -1,6 +1,6 @@
 # tasker — Development Backlog
 
-This document tracks all planned work towards building the complete tasker ecosystem. Items are grouped by milestone. Check off items as they are completed.
+This document tracks all planned work towards building the complete tasker ecosystem. Items are grouped by milestone. Check off items as they are completed, and keep [DESIGN.md](DESIGN.md) and [TESTING.md](TESTING.md) aligned with architectural or test changes.
 
 ---
 
@@ -10,197 +10,159 @@ This document tracks all planned work towards building the complete tasker ecosy
 - [x] Create `docs/DESIGN.md` with full architecture and technical design
 - [x] Create `docs/TESTING.md` with CI/testing strategy
 - [x] Create `docs/BACKLOG.md` (this file)
+- [x] Create `AGENTS.md` with repository guidelines, Versa 2 constraints, and doc workflow
 - [x] Add `LICENSE` file (MIT)
-- [x] Set up `.github/workflows/deploy.yml` deployment pipeline (build + GitHub Pages)
-- [x] Add `.gitignore` for Node.js, Vite, and Fitbit SDK artifacts
+- [x] Set up `.github/workflows/ci.yml` and `.github/workflows/deploy.yml`
+- [x] Add `.gitignore` for Node.js, Vite, workspace builds, and Fitbit SDK artifacts
 
 ---
 
-## Milestone 1 — PWA Scaffold
+## Milestone 1 — Root Workspace & Shared Infrastructure
 
-- [x] Initialise Vite + TypeScript project under `web/`
-- [ ] Configure Vite PWA plugin (`vite-plugin-pwa`) for Service Worker generation
-- [x] Set up Vitest for unit and integration tests
-- [x] Set up Playwright for E2E tests
-- [x] Create `web/src/main.ts` entry point
-- [x] Create bare-bones `index.html` with app shell
-- [x] Add CSS custom properties design tokens (colours, spacing, typography)
-- [x] Implement responsive layout (mobile-first, works on 375px viewport)
-- [ ] Add `manifest.webmanifest` for PWA installability
-- [ ] Add app icon assets (SVG source + PNG exports at 192×192 and 512×512)
-- [x] Configure GitHub Pages deployment in CI
-
----
-
-## Milestone 2 — Authentication
-
-- [ ] Design and implement Settings screen (Nextcloud URL, username, app password, tasker config JSON path)
-- [x] Implement `auth.ts`: Basic Auth header generation
-- [x] Store credentials in IndexedDB; persist across sessions (no PIN required on reload)
-- [ ] On first launch: read `tasker-config.json` from user-provided WebDAV path to bootstrap preferences
-- [x] Show "connected" / "connection failed" status on Settings screen
-- [x] Implement logout (clear credentials + cached data)
-- [x] Write unit tests for `auth.ts`
-- [x] Write E2E test: enter credentials → tasks load
+- [x] Verify `@fitbit/sdk ~4.3.0` (`mira` / Fitbit Versa 2 target) builds cleanly on the local Node toolchain
+- [x] Create root `package.json` with npm workspaces (`packages/*`, `web`, `fitbit`) and unified build/test scripts
+- [x] Scaffold `packages/core` (`@tasker/core`) with dual build targets:
+  - [x] `@tasker/core/watch` compiled to ES5 (`lib: ["ES5"]`) for Fitbit Versa 2 (JerryScript)
+  - [x] `@tasker/core` compiled to ES2015 ESM (no DOM/Node-only globals) for PWA and Fitbit Companion
+- [x] Scaffold `packages/mock-caldav` (`@tasker/mock-caldav`) shared test backend package
+- [x] Migrate Fitbit Versa 2 prototype into `fitbit/` (`@tasker/fitbit`), preserving `appUUID` (`99c33526-f098-4b3b-a932-168e244bee40`), `buildTargets: ["mira"]`, and `@fitbit/sdk ~4.3.0`
+- [x] Verify `fitbit-build` bundles imports from both `@tasker/core/watch` (Watch App) and `@tasker/core` (Companion App) into `fitbit/build/app.fba`
+- [x] Wire `web/` (`@tasker/web`) to consume shared types from `@tasker/core`
+- [x] Update `.github/workflows/ci.yml` and `.github/workflows/deploy.yml` to build and test from the root workspace (including Fitbit `.fba` build verification)
+- [x] Remove legacy untracked `app/` folder once `fitbit/` migration is verified and approved
 
 ---
 
-## Milestone 3 — CalDAV Client
+## Milestone 2 — Shared Core (`@tasker/core`)
 
-- [x] Implement `caldav/client.ts`:
-  - [x] `propfindCalendars()` — list all calendar collections
-  - [ ] `propfindCTag()` — fetch CTag for a single collection
-  - [x] `reportTasks()` — fetch all VTODOs from a collection
-  - [ ] `putTask()` — create or update a single task
-  - [ ] `deleteTask()` — delete a task
-- [x] Implement `caldav/parser.ts`:
-  - [x] Parse VCALENDAR / VTODO structure
-  - [x] Map VTODO fields to internal `Task` model
-  - [x] Handle `CATEGORIES` (comma-separated and multi-value forms)
-  - [x] Handle `COMPLETED`, `PERCENT-COMPLETE`, `STATUS`
-  - [ ] Handle `DTSTART`, `DUE`, `CREATED`, `LAST-MODIFIED` with timezone
-- [ ] Implement `caldav/serializer.ts`:
-  - [ ] Serialize `Task` → iCalendar string
-  - [ ] Generate UUID for new tasks
-  - [ ] Set `DTSTAMP` and `LAST-MODIFIED` to current time
-- [ ] Write unit tests for `parser.ts` (≥ 95% coverage)
-- [ ] Write unit tests for `serializer.ts` (≥ 95% coverage)
-- [x] Write unit tests for `client.ts` with MSW mocks
+### Domain & Watch-Safe Module (`@tasker/core/watch`)
+- [x] Define compact task (`CompactTask`) and Watch↔Companion message protocol types
+- [x] Implement aisle/category sorting (`sortTasksByAisle`) with Vitest unit tests
+- [x] Implement watch-side local state merge & optimistic toggle queue helpers (`mergeWatchTasks`, pending toggle reconciliation)
+- [x] Implement message chunking/reassembly helpers for large task lists over Fitbit messaging / file transfer
+- [x] Achieve ≥ 95% Vitest coverage on `@tasker/core/watch`
 
----
+### iCalendar (`VTODO`) Parser & Serializer
+- [x] Define canonical `Task`, `CalendarInfo`, `Credentials`, `AisleConfig`, and `TaskerConfig` models
+- [x] Implement lossless `VTODO` parser (`parseVTodo`):
+  - [x] Parse `UID`, `SUMMARY`, `DESCRIPTION`, `STATUS`, `PERCENT-COMPLETE`, `PRIORITY`, `CATEGORIES`, `CREATED`, `LAST-MODIFIED`, `COMPLETED`, `DTSTART`, `DUE`
+  - [x] Handle RFC 5545 folded lines (`CRLF + space/tab`), escaped characters, and multi-line/comma-separated `CATEGORIES`
+  - [x] Preserve raw/unknown `VTODO` properties so updates never clobber metadata from Nextcloud Tasks or other CalDAV clients
+- [x] Implement lossless `VTODO` serializer (`serializeVTodo` / `patchVTodo`):
+  - [x] Create new `VCALENDAR`/`VTODO` objects with generated UUID, `DTSTAMP`, `CREATED`, `LAST-MODIFIED`
+  - [x] Patch existing raw `VTODO` strings in-place while preserving unknown properties
+- [x] Write unit tests for parser & serializer (≥ 95% coverage, round-trip deep-equal tests)
 
-## Milestone 4 — IndexedDB Layer
+### Runtime-Agnostic CalDAV & WebDAV Client
+- [x] Implement lightweight, dependency-free XML helper (namespace-aware, works in Browser, Fitbit Companion, and Node without browser `DOMParser`)
+- [x] Implement `CalDavClient` (injectable `fetch`):
+  - [x] `listTaskCalendars()` — `PROPFIND` filtering by `supported-calendar-component-set` (`VTODO`)
+  - [x] `getCalendarCTag()` — `PROPFIND` (`Depth: 0`) for `{getctag}`
+  - [x] `fetchTasks()` — `REPORT` (`calendar-query`) returning tasks with `href` and `etag`
+  - [x] `putTask()` — `PUT` with `If-Match` header (detects `412 Precondition Failed`)
+  - [x] `deleteTask()` — `DELETE` with optional `If-Match`
+- [x] Implement `WebDavClient` (injectable `fetch`) for reading `tasker-config.json` and read-only Markdown recipe files
+- [x] Write integration tests against `@tasker/mock-caldav`
 
-- [ ] Implement `db/index.ts`: open `tasker-db`, define schema and upgrades
-- [ ] Implement `db/tasks.ts`:
-  - [ ] `getTask(uid)`, `getAllTasks(calendarId)`, `putTask(task)`, `deleteTask(uid)`
-  - [ ] Query tasks by `status` and `categories`
-- [ ] Implement `db/calendars.ts`: store and retrieve calendar metadata + CTag
-- [ ] Implement `db/sync-queue.ts`:
-  - [ ] `enqueue(operation)` — add a pending create/update/delete
-  - [ ] `dequeue()` — get all pending operations
-  - [ ] `acknowledge(id)` — remove operation after successful sync
-- [ ] Write unit tests for all DB modules (fake IndexedDB via `fake-indexeddb`)
-
----
-
-## Milestone 5 — Sync Engine
-
-- [ ] Implement `sync/sync-engine.ts`:
-  - [ ] `fullSync(calendarId)` — PROPFIND → compare CTag → REPORT → diff → persist
-  - [ ] `flushQueue()` — replay all queued operations against CalDAV
-  - [ ] `scheduleSync()` — run full sync on tab focus and every 5 minutes
-- [ ] Implement `sync/conflict.ts`:
-  - [ ] Last-write-wins based on `LAST-MODIFIED`
-  - [ ] `If-Match` ETag handling for PUT requests
-  - [ ] 412 conflict detection and user-facing conflict UI
-- [ ] Write integration tests for sync engine with MSW mocks
-- [ ] Write unit tests for `conflict.ts` (100% coverage)
+### Storage-Agnostic Local Store & Sync Engine
+- [x] Define `TaskStore`, `CalendarMetadataStore`, and `SyncQueueStore` interfaces (plus an `InMemoryStore` for tests)
+- [x] Implement `SyncEngine`:
+  - [x] Optimistic local create/update/toggle/delete + FIFO `SyncQueue`
+  - [x] `fullSync(calendarHref)` — CTag check → `REPORT` → ETag diff → local upsert/prune → persist CTag
+  - [x] `flushQueue()` — replay queued `PUT`/`DELETE` operations with `If-Match`
+- [x] Implement conflict resolution (`resolveConflict`):
+  - [x] `412` detection, fresh server fetch, `LAST-MODIFIED` comparison, auto last-write-wins or user-resolvable conflict record
+- [x] Write unit tests for conflict logic (100% coverage) and integration tests for `SyncEngine` (≥ 80% coverage)
 
 ---
 
-## Milestone 6 — Service Worker & Offline
+## Milestone 3 — Shared Mock CalDAV / WebDAV Server (`@tasker/mock-caldav`)
 
-- [ ] Implement `sw/service-worker.ts`:
-  - [ ] Pre-cache Vite build assets on `install`
-  - [ ] Network-first strategy for CalDAV requests
-  - [ ] Cache-first strategy for static assets
-  - [ ] Handle `sync` event with tag `caldav-flush`
-- [ ] Register Service Worker from `main.ts`
-- [ ] Register `caldav-flush` Background Sync tag when a change is queued offline
-- [ ] Test offline task creation → verify sync when back online (E2E)
-- [ ] Add "offline" banner to UI when `navigator.onLine` is false
-
----
-
-## Milestone 7 — Task List UI
-
-- [ ] Implement `ui/list-view.ts`:
-  - [ ] Fetch tasks from IndexedDB and render grouped by aisle/category
-  - [ ] Sort aisles by user-defined order
-  - [x] Render completed tasks with strikethrough; allow toggling completion
-  - [ ] Pull-to-refresh gesture triggers a manual sync
-- [ ] Implement `ui/task-editor.ts`:
-  - [ ] Add task form (summary, category/aisle, notes, priority)
-  - [ ] Edit task form (pre-populated with existing values)
-  - [ ] Delete task with confirmation prompt
-- [ ] Implement `ui/aisle-manager.ts`:
-  - [ ] List aisles in sort order
-  - [ ] Add, rename, reorder (drag-and-drop), and delete aisles
-- [ ] Write E2E tests for task CRUD flows
-- [ ] Write E2E visual snapshot tests for list and editor views
+- [x] Scaffold `@tasker/mock-caldav` package with basic `PROPFIND`/`REPORT` and CORS support
+- [x] Implement full stateful in-memory CalDAV store:
+  - [x] Multiple calendars (mix of `VTODO` and `VEVENT`-only) with dynamic `CTag` bumping on writes
+  - [x] `REPORT` (`calendar-query`) returning `href`, `getetag`, and `calendar-data`
+  - [x] `PUT` creating/updating tasks, enforcing `If-Match` (returning `412 Precondition Failed` on stale ETag), and returning updated `ETag`
+  - [x] `DELETE` removing tasks and bumping `CTag`
+  - [x] Auth verification (HTTP Basic Auth, configurable `401` failure mode)
+  - [x] Fault injection helpers (offline/500/412 simulation for conflict & error-handling tests)
+- [x] Implement WebDAV file endpoints (`GET`/`PROPFIND`) for `tasker-config.json` and Markdown recipe fixtures
+- [x] Export both an HTTP server helper (for Playwright E2E) and an in-process `fetch` handler (for fast Vitest integration tests)
+- [x] Write self-tests for `@tasker/mock-caldav`
 
 ---
 
-## Milestone 8 — Recipe / Meal Planning
+## Milestone 4 — PWA Web App (`web/`)
 
-- [ ] Document Markdown recipe format in `docs/DESIGN.md` § Recipe
-- [ ] Implement WebDAV client for recipe files (`webdav/client.ts`) — **read-only**:
-  - [ ] `listRecipes()` — PROPFIND configured recipes folder path
-  - [ ] `getRecipe(slug)` — GET recipe Markdown file
-- [ ] Implement Markdown ingredient parser (parse `## Ingredients` section → items + aisle tags)
-- [ ] Implement recipe list UI (read-only; links to Nextcloud for editing)
-- [ ] Implement "Add to grocery list" action: convert recipe ingredients to VTODOs
-- [ ] Implement meal planner calendar view (weekly grid)
-- [ ] Store meal plan entries as WebDAV JSON files
-- [ ] Write unit tests for WebDAV client
-- [ ] Write E2E tests for recipe → grocery list flow
+### Foundation & Auth
+- [x] Vite + TypeScript + Vitest + Playwright (`TestStepHelper`) scaffold under `web/`
+- [x] Basic Auth header generation and IndexedDB credential persistence (`auth.ts`)
+- [x] Initial E2E authentication scenario (`web/e2e/001-auth/`) with zero-pixel screenshots
+- [x] Configure PWA installability: `manifest.webmanifest`, app icons (SVG + 192×192 / 512×512 PNG), and custom Service Worker (`public/sw.js`)
+- [x] Implement Settings screen (Nextcloud URL, username, app password, `tasker-config.json` WebDAV path, connection status, logout clearing cached data)
+- [x] Bootstrap preferences (aisle order, default calendar, recipes path) from `tasker-config.json` on first launch
 
----
+### Offline Storage, Sync & Service Worker
+- [x] Implement IndexedDB adapter (`web/src/db/`) conforming to `@tasker/core` `TaskStore`, `CalendarMetadataStore`, and `SyncQueueStore` (`tasker-db`)
+- [x] Wire `SyncEngine` from `@tasker/core` into the PWA (tab-focus sync, online-reconnect sync, manual refresh)
+- [x] Implement Service Worker (`public/sw.js` + `src/sw-register.ts`): asset pre-caching, network-first CalDAV, `sync` event (`caldav-flush`)
+- [x] Display offline indicator & sync status badge; register `caldav-flush` when mutations are queued offline
+- [x] Add conflict resolution UI when `412` occurs
 
-## Milestone 9 — Fitbit Scaffold
-
-- [ ] Initialise Fitbit SDK project under `fitbit/`
-- [ ] Configure Fitbit CLI (`npx fitbit`) and build pipeline
-- [ ] Create Watch App entry point (`fitbit/app/index.js`)
-- [ ] Create Companion App entry point (`fitbit/companion/index.js`)
-- [ ] Set up Jest for Fitbit unit tests
-- [ ] Define message protocol types (see `docs/DESIGN.md` § Bluetooth Communication Protocol)
-
----
-
-## Milestone 10 — Fitbit Watch App
-
-- [ ] Design Watch UI (SVG-based list view, item detail view)
-- [ ] Implement task list screen: render items sorted by aisle
-- [ ] Implement item detail screen: show summary, categories, notes
-- [ ] Implement toggle-complete action (tap item → send `UPDATE_TASK` message)
-- [ ] Implement `watch/cache.js`: read/write task list from Fitbit File Storage API
-- [ ] Show sync status indicator (spinner while waiting, error badge on failure)
-- [ ] Handle `TASKS_PAYLOAD` message: merge with cache, re-render
-- [ ] Handle `UPDATE_ACK` message: update cache, dismiss spinner
-- [ ] Handle `ERROR` message: show error banner, revert optimistic update
-- [ ] Write unit tests for `watch/cache.js`
-- [ ] Write protocol unit tests
+### Grocery List & Task Management UI
+- [x] Implement aisle-grouped grocery list view (`ui/list-view.ts`) using `@tasker/core/watch` `sortTasksByAisle`
+- [x] Quick-add bar and one-tap completion toggle (optimistic local update + sync)
+- [x] Implement task editor (`ui/task-editor.ts`): add/edit summary, aisle/categories, notes, priority, and delete with confirmation
+- [x] Implement aisle manager (`ui/aisle-manager.ts`): add, rename, reorder, delete aisles (persisted locally and synced to `tasker-config.json`)
+- [x] Write Playwright E2E + zero-pixel visual regression scenarios:
+  - [x] Task CRUD & aisle-sorted grocery list (`web/e2e/002-grocery-crud/`)
+  - [x] Offline edits → reconnect → automatic sync & conflict (`412`) resolution flow (`web/e2e/003-offline-and-conflicts/`)
 
 ---
 
-## Milestone 11 — Fitbit Companion App
+## Milestone 5 — Fitbit Versa 2 App (`fitbit/`)
 
-- [ ] Implement Companion CalDAV client (`companion/caldav-client.js`):
-  - [ ] Reuse / port iCalendar parser from PWA
-  - [ ] `fetchTasks(calendarId)` → PROPFIND + REPORT
-  - [ ] `updateTask(uid, completed, etag)` → PUT
-- [ ] Handle `FETCH_TASKS` message from watch: fetch + send `TASKS_PAYLOAD`
-- [ ] Handle `UPDATE_TASK` message from watch: PUT + send `UPDATE_ACK` or `ERROR`
-- [ ] Store Nextcloud credentials securely in Companion settings storage
-- [ ] Implement Companion settings page (Nextcloud URL, username, app password)
-- [ ] Write unit tests for Companion CalDAV client
-- [ ] Write message protocol round-trip tests
+### Watch & Companion Integration with `@tasker/core`
+- [x] Implement Companion CalDAV sync (`fitbit/companion/sync.js`) using `@tasker/core` (`CalDavClient`, `WebDavClient`, lossless `VTODO` patching, `ETag`/`If-Match` with `412` retry, calendar selection from settings/config)
+- [x] Update Companion Settings page (`fitbit/settings/index.jsx`) to configure Nextcloud URL, username, app password, and optional task list / config path
+- [x] Replace ad-hoc messaging with shared chunked protocol from `@tasker/core/watch` (`TASKS_PAYLOAD` / `TASKS_CHUNK`, `UPDATE_TASK`, `UPDATE_ACK`, `ERROR`)
+- [x] Implement Watch App (`fitbit/app/watch-app.js` + `fitbit/app/index.js`) using `@tasker/core/watch`:
+  - [x] Render grocery tasks sorted by aisle with aisle labels on Versa 2 (`300×300` screen)
+  - [x] Persist task list and pending offline completion toggles via Fitbit File Storage (`fs`)
+  - [x] Optimistic tap-to-toggle completion with offline queue replay when Companion reconnects
+  - [x] Syncing / offline / pending / error status indicator and manual Sync button
+
+### Fitbit Unit, Protocol & Rendered E2E Testing (No Device Required)
+- [x] Write Vitest unit & integration tests (`fitbit/test/fitbit-sync.test.ts`) for Companion sync handler and Watch state/cache/protocol logic against `@tasker/mock-caldav`
+- [x] Build browser/Playwright Fitbit Versa 2 rendered test harness (`fitbit/e2e/harness/`):
+  - [x] Renders `fitbit/resources/index.gui` in a deterministic `300×300` Versa 2 viewport
+  - [x] Shims Fitbit `document`, `#tile-list` / `#checkbox-tile` widgets, `fs` File Storage, and messaging bridge
+  - [x] Wires the shimmed bridge directly to the real Companion code talking to `@tasker/mock-caldav`
+- [x] Write Playwright E2E + zero-pixel visual regression scenario (`fitbit/e2e/001-watch-sync/`) using `TestStepHelper`:
+  - [x] Initial sync & aisle-sorted watch list render
+  - [x] Tapping items on watch → verifying lossless `PUT` persistence in `@tasker/mock-caldav`
+  - [x] Offline check-offs surviving watch restart via `fs` cache → reconnect → sync reconciliation
 
 ---
 
-## Milestone 12 — Polish & Release
+## Milestone 6 — Recipe & Meal Planning (PWA)
 
-- [ ] Add accessibility: ARIA labels, keyboard navigation, sufficient colour contrast
-- [ ] Add i18n foundation (English only initially; structure for future translations)
-- [ ] Implement dark mode (CSS prefers-color-scheme)
-- [ ] Audit and tighten Content-Security-Policy headers
-- [ ] Performance audit: Lighthouse ≥ 90 on all categories
-- [ ] Write `CONTRIBUTING.md`
-- [ ] Tag `v0.1.0` release
-- [ ] Publish Fitbit app to Fitbit Gallery (if Fitbit SDK policies permit)
-- [ ] Announce on Nextcloud forums / community channels
+- [ ] Implement Markdown ingredient parser in `@tasker/core` (`## Ingredients` section → items + parenthesised aisle tags)
+- [ ] Implement read-only recipe list & detail view in PWA (fetched via `@tasker/core` `WebDavClient`, link to Nextcloud for editing)
+- [ ] Implement "Add ingredients to grocery list" action converting parsed ingredients into `VTODO` tasks
+- [ ] Implement weekly meal planner view (stored as WebDAV JSON)
+- [ ] Write unit tests for Markdown recipe parser and Playwright E2E tests for recipe → grocery list flow
+
+---
+
+## Milestone 7 — Polish & Release
+
+- [ ] Accessibility audit: ARIA labels, keyboard navigation, colour contrast
+- [ ] Dark mode support (`prefers-color-scheme`)
+- [ ] Audit and tighten Content-Security-Policy headers in PWA
+- [ ] Lighthouse audit (≥ 90 across categories)
+- [ ] Write `CONTRIBUTING.md` and tag `v0.1.0` release
+- [ ] Sideload & verify `.fba` bundle on physical Fitbit Versa 2
 
 ---
 
@@ -211,5 +173,4 @@ This document tracks all planned work towards building the complete tasker ecosy
 - [ ] Shared lists (CalDAV sharing / delegation)
 - [ ] iOS Shortcuts integration for quick-add from Siri
 - [ ] Android widget showing current grocery list
-- [ ] Nextcloud Talk integration for shared shopping notifications
-- [ ] Support for other CalDAV providers (iCloud, Google Tasks via bridge, etc.)
+- [ ] Support for additional CalDAV providers beyond Nextcloud

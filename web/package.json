@@ -1,7 +1,7 @@
 {
-  "name": "web",
+  "name": "@tasker/web",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,14 +9,16 @@
     "deploy": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:integration": "vitest run src/client.integration.test.ts",
+    "test:integration": "vitest run src/sync-integration.test.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@tasker/core": "*",
     "idb": "^8.0.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",
+    "@tasker/mock-caldav": "*",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^27.0.0",
     "typescript": "~6.0.2",

@@ -1,0 +1,12 @@
+{
+  "extends": "@fitbit/sdk/sdk-tsconfig.json",
+  "compilerOptions": {
+    "lib": ["es5", "es2015.promise", "es2015.iterable"]
+  },
+  "include": [
+    "app/**/*",
+    "companion/**/*",
+    "settings/**/*",
+    "../packages/core/dist/**/*.js"
+  ]
+}

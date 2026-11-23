@@ -1,3 +1,5 @@
+node_modules/
+packages/*/dist/
 web/node_modules/
 web/dist/
 web/test-results/
@@ -5,3 +7,6 @@ web/playwright-report/
 web/.vite/
 fitbit/node_modules/
 fitbit/build/
+fitbit/test-results/
+fitbit/playwright-report/
+coverage/

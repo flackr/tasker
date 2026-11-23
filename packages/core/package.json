@@ -1,0 +1,29 @@
+{
+  "name": "@tasker/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./watch": {
+      "types": "./dist/watch/index.d.ts",
+      "import": "./dist/watch/index.js",
+      "default": "./dist/watch/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.watch.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@tasker/mock-caldav": "*"
+  }
+}

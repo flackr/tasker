@@ -1,0 +1,122 @@
+import { describe, expect, it } from 'vitest';
+import {
+  acknowledgeWatchToggle,
+  applyOptimisticToggle,
+  mergeWatchTasks,
+} from './state.js';
+import {
+  chunkTasksPayload,
+  createChunkReassembler,
+  utf8ByteLength,
+} from './protocol.js';
+import type { CompactTask, CompanionToWatchMessage } from './types.js';
+
+describe('watch state merge and optimistic toggles', () => {
+  const baseTasks: CompactTask[] = [
+    { uid: '1', summary: 'Milk', categories: ['Dairy'], completed: false, etag: 'e1' },
+    { uid: '2', summary: 'Bread', categories: ['Bakery'], completed: false, etag: 'e2' },
+  ];
+
+  it('applies optimistic toggles and deduplicates repeated toggles for the same uid', () => {
+    const step1 = applyOptimisticToggle(baseTasks, [], '1', true, 1000);
+    expect(step1.tasks[0].completed).toBe(true);
+    expect(step1.pending).toEqual([{ uid: '1', completed: true, updatedAt: 1000 }]);
+
+    // Toggling back updates the existing pending entry rather than adding a duplicate
+    const step2 = applyOptimisticToggle(step1.tasks, step1.pending, '1', false, 2000);
+    expect(step2.tasks[0].completed).toBe(false);
+    expect(step2.pending).toEqual([{ uid: '1', completed: false, updatedAt: 2000 }]);
+  });
+
+  it('preserves pending local toggles when merging server payload and drops server-deleted items', () => {
+    const toggled = applyOptimisticToggle(baseTasks, [], '1', true, 1000);
+    const serverPayload: CompactTask[] = [
+      { uid: '1', summary: 'Whole Milk', categories: ['Dairy'], completed: false, etag: 'e1b' },
+      { uid: '3', summary: 'Eggs', categories: ['Dairy'], completed: false, etag: 'e3' },
+    ];
+
+    const merged = mergeWatchTasks(serverPayload, toggled.pending);
+    expect(merged).toEqual([
+      { uid: '1', summary: 'Whole Milk', categories: ['Dairy'], completed: true, etag: 'e1b' },
+      { uid: '3', summary: 'Eggs', categories: ['Dairy'], completed: false, etag: 'e3' },
+    ]);
+  });
+
+  it('acknowledges toggles and silently ignores unknown uids', () => {
+    const toggled = applyOptimisticToggle(baseTasks, [], '1', true, 1000);
+    const acked = acknowledgeWatchToggle(toggled.tasks, toggled.pending, '1', 'e1-new');
+    expect(acked.pending).toEqual([]);
+    expect(acked.tasks[0].etag).toBe('e1-new');
+
+    const unknown = acknowledgeWatchToggle(acked.tasks, acked.pending, 'unknown-uid', 'e9');
+    expect(unknown.tasks).toEqual(acked.tasks);
+    expect(unknown.pending).toEqual([]);
+  });
+});
+
+describe('watch message chunking and reassembly', () => {
+  it('sends a single TASKS_PAYLOAD for empty or small task lists', () => {
+    const emptyMsgs = chunkTasksPayload([]);
+    expect(emptyMsgs).toEqual([{ type: 'TASKS_PAYLOAD', tasks: [] }]);
+
+    const small: CompactTask[] = [
+      { uid: '1', summary: 'Milk', categories: ['Dairy'], completed: false },
+    ];
+    const msgs = chunkTasksPayload(small, { maxBytes: 900, aisleOrder: ['Dairy'] });
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].type).toBe('TASKS_PAYLOAD');
+  });
+
+  it('splits oversized payloads into <= maxBytes chunks and reassembles out-of-order and duplicate chunks', () => {
+    const tasks: CompactTask[] = [];
+    for (let i = 0; i < 20; i++) {
+      tasks.push({
+        uid: `task-${i}`,
+        summary: `Grocery item number ${i} with description`,
+        categories: ['Produce'],
+        completed: i % 2 === 0,
+        etag: `etag-${i}`,
+      });
+    }
+
+    const messages = chunkTasksPayload(tasks, {
+      maxBytes: 350,
+      transferId: 'tx-1',
+      calendarHref: '/cal/shopping/',
+      aisleOrder: ['Produce', 'Dairy'],
+    });
+    expect(messages.length).toBeGreaterThan(2);
+    for (const msg of messages) {
+      expect(msg.type).toBe('TASKS_CHUNK');
+      expect(utf8ByteLength(JSON.stringify(msg))).toBeLessThanOrEqual(350);
+    }
+
+    const reassembler = createChunkReassembler();
+    // Ignore unknown/unrelated messages safely
+    expect(reassembler.accept({ type: 'ERROR', message: 'boom' })).toBeNull();
+    expect(reassembler.accept({ type: 'UNKNOWN' } as unknown as CompanionToWatchMessage)).toBeNull();
+
+    // Deliver chunks out of order with a duplicate
+    const reversed = messages.slice().reverse();
+    let result = null;
+    for (let i = 0; i < reversed.length; i++) {
+      if (i === 1) {
+        // Duplicate chunk 0 of reversed
+        expect(reassembler.accept(reversed[0])).toBeNull();
+      }
+      result = reassembler.accept(reversed[i]);
+    }
+
+    expect(result).toEqual({
+      tasks,
+      calendarHref: '/cal/shopping/',
+      aisleOrder: ['Produce', 'Dairy'],
+    });
+  });
+
+  it('computes multi-byte UTF-8 lengths accurately', () => {
+    expect(utf8ByteLength('abc')).toBe(3);
+    expect(utf8ByteLength('café')).toBe(5);
+    expect(utf8ByteLength('🥛')).toBe(4);
+  });
+});

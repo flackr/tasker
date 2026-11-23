@@ -9,45 +9,43 @@ permissions:
   contents: read
 
 jobs:
-  web-test:
-    name: Web Unit & E2E Tests
+  test:
+    name: Workspace Unit & E2E Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: package-lock.json
       - run: npm ci
-        working-directory: web
       - run: npm test
-        working-directory: web
-      - run: npm run test:integration
-        working-directory: web
       - run: npx playwright install --with-deps chromium
-        working-directory: web
       - run: npm run test:e2e
-        working-directory: web
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: playwright-report
+          name: web-playwright-report
           path: web/playwright-report/
           retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fitbit-playwright-report
+          path: fitbit/playwright-report/
+          retention-days: 30
 
-  web-build:
-    name: Web Production Build
+  build:
+    name: Web & Fitbit Production Builds
     runs-on: ubuntu-latest
-    needs: [web-test]
+    needs: [test]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: package-lock.json
       - run: npm ci
-        working-directory: web
       - run: npm run build
-        working-directory: web
