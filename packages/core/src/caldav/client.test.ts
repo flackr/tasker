@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createCalDavClient } from './client.js';
 import { CalDavError, createBasicAuthHeader } from './http.js';
 import { createWebDavClient } from './webdav.js';
+import { resolveConfiguredCategories } from '../types.js';
 
 const credentials = {
   baseUrl: 'https://cloud.example.com',
@@ -202,5 +203,23 @@ describe('WebDavClient integration against @tasker/mock-caldav', () => {
     expect(
       JSON.parse(files.get('/remote.php/dav/files/alice/Notes/Tasker/tasker-config.json')!),
     ).toEqual({ categories: ['Produce', 'Dairy'] });
+  });
+
+  it('resolves per-calendar categories before falling back to global categories or legacy aisles', () => {
+    const cfg = {
+      categories: ['Produce', 'Dairy'],
+      categoriesByCalendar: {
+        '/remote.php/dav/calendars/alice/hardware/': ['Electrical', 'Fasteners'],
+      },
+    };
+    expect(resolveConfiguredCategories(cfg, '/remote.php/dav/calendars/alice/hardware/')).toEqual([
+      'Electrical',
+      'Fasteners',
+    ]);
+    expect(resolveConfiguredCategories(cfg, '/remote.php/dav/calendars/alice/shopping/')).toEqual([
+      'Produce',
+      'Dairy',
+    ]);
+    expect(resolveConfiguredCategories({ aisles: ['Bakery'] }, '/any/')).toEqual(['Bakery']);
   });
 });

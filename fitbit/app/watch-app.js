@@ -114,17 +114,22 @@ function readListStore(fs, calendarHref) {
     tasks: Array.isArray(data.tasks) ? data.tasks : [],
     pending: Array.isArray(data.pending) ? data.pending : [],
     lastSyncedAt: data.lastSyncedAt,
+    categoryOrder: Array.isArray(data.categoryOrder) ? data.categoryOrder : undefined,
   };
 }
 
-function writeListStore(fs, calendarHref, tasks, pending, lastSyncedAt) {
+function writeListStore(fs, calendarHref, tasks, pending, lastSyncedAt, categoryOrder) {
   if (!calendarHref) return;
-  writeJsonFile(fs, getListCacheFilename(calendarHref), {
+  var record = {
     calendarHref: calendarHref,
     tasks: tasks,
     pending: pending,
     lastSyncedAt: lastSyncedAt,
-  });
+  };
+  if (Array.isArray(categoryOrder)) {
+    record.categoryOrder = categoryOrder;
+  }
+  writeJsonFile(fs, getListCacheFilename(calendarHref), record);
 }
 
 function getCategoryLabel(task) {
@@ -169,10 +174,17 @@ export function createWatchApp(options) {
     items: [],
     pending: [],
     categoryOrder: [],
+    activeCategoryOrder: undefined,
     lastSyncedAt: undefined,
     syncing: false,
     error: "",
   };
+
+  function getEffectiveCategoryOrder() {
+    return Array.isArray(state.activeCategoryOrder)
+      ? state.activeCategoryOrder
+      : state.categoryOrder;
+  }
 
   function getActiveCalendarName() {
     if (!state.activeCalendarHref) return "Tasks";
@@ -334,6 +346,7 @@ export function createWatchApp(options) {
       state.items,
       state.pending,
       state.lastSyncedAt,
+      state.activeCategoryOrder,
     );
   }
 
@@ -359,10 +372,12 @@ export function createWatchApp(options) {
 
     var stored = readListStore(fs, calendarHref);
     if (stored) {
-      state.items = sortTasksByCategory(stored.tasks, state.categoryOrder);
+      state.activeCategoryOrder = stored.categoryOrder;
+      state.items = sortTasksByCategory(stored.tasks, getEffectiveCategoryOrder());
       state.pending = stored.pending;
       state.lastSyncedAt = stored.lastSyncedAt;
     } else {
+      state.activeCategoryOrder = undefined;
       state.items = [];
       state.pending = [];
       state.lastSyncedAt = undefined;
@@ -470,8 +485,8 @@ export function createWatchApp(options) {
       }
       if (Array.isArray(data.categoryOrder)) {
         state.categoryOrder = data.categoryOrder.slice();
-        if (state.items.length > 0) {
-          state.items = sortTasksByCategory(state.items, state.categoryOrder);
+        if (state.items.length > 0 && !Array.isArray(state.activeCategoryOrder)) {
+          state.items = sortTasksByCategory(state.items, getEffectiveCategoryOrder());
         }
       }
 
@@ -507,27 +522,29 @@ export function createWatchApp(options) {
       if (!payload) return;
 
       var targetHref = payload.calendarHref || state.activeCalendarHref;
-      if (Array.isArray(payload.categoryOrder)) {
-        state.categoryOrder = payload.categoryOrder.slice();
-        persistIndex();
-      }
-
       var isActive = targetHref === state.activeCalendarHref;
       var existingStore = isActive
-        ? { tasks: state.items, pending: state.pending }
+        ? { tasks: state.items, pending: state.pending, categoryOrder: state.activeCategoryOrder }
         : readListStore(fs, targetHref) || { tasks: [], pending: [] };
+      var listCategoryOrder = Array.isArray(payload.categoryOrder)
+        ? payload.categoryOrder.slice()
+        : existingStore.categoryOrder;
+      var effectiveOrder = Array.isArray(listCategoryOrder)
+        ? listCategoryOrder
+        : state.categoryOrder;
 
       var reconciled = reconcileWatchTasks(payload.tasks, existingStore.pending);
-      var sorted = sortTasksByCategory(reconciled.tasks, state.categoryOrder);
+      var sorted = sortTasksByCategory(reconciled.tasks, effectiveOrder);
       var syncedAt = nowFn();
 
-      writeListStore(fs, targetHref, sorted, reconciled.pending, syncedAt);
+      writeListStore(fs, targetHref, sorted, reconciled.pending, syncedAt, listCategoryOrder);
 
       if (isActive) {
         state.syncing = false;
         state.error = "";
         state.items = sorted;
         state.pending = reconciled.pending;
+        state.activeCategoryOrder = listCategoryOrder;
         state.lastSyncedAt = syncedAt;
       }
 
@@ -567,6 +584,7 @@ export function createWatchApp(options) {
             otherAcked.tasks,
             otherAcked.pending,
             other.lastSyncedAt,
+            other.categoryOrder,
           );
           if (state.view === "lists") {
             render();
@@ -615,7 +633,8 @@ export function createWatchApp(options) {
         state.view = "tasks";
         var storedList = readListStore(fs, state.activeCalendarHref);
         if (storedList) {
-          state.items = sortTasksByCategory(storedList.tasks, state.categoryOrder);
+          state.activeCategoryOrder = storedList.categoryOrder;
+          state.items = sortTasksByCategory(storedList.tasks, getEffectiveCategoryOrder());
           state.pending = storedList.pending;
           state.lastSyncedAt = storedList.lastSyncedAt;
         }
@@ -647,7 +666,7 @@ export function createWatchApp(options) {
         activeCalendarName: getActiveCalendarName(),
         items: state.items.slice(),
         pending: state.pending.slice(),
-        categoryOrder: state.categoryOrder.slice(),
+        categoryOrder: getEffectiveCategoryOrder().slice(),
         status: computeStatusText(),
       };
     },

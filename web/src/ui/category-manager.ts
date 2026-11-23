@@ -3,18 +3,25 @@ import { escapeAttr, escapeHtml } from './html';
 export interface CategoryManagerProps {
   categories: string[];
   renamingIndex: number | null;
+  calendarName?: string;
 }
 
 export function renderCategoryManager({
   categories,
   renamingIndex,
+  calendarName,
 }: CategoryManagerProps): string {
+  const heading = calendarName ? `${calendarName} Categories` : 'Category Order';
+  const subtitle = calendarName
+    ? `Tasks in "${calendarName}" are grouped and sorted in this order on both the web app and Fitbit watch. Switch lists from the title above to customize other lists.`
+    : 'Tasks in both the web app and Fitbit watch are grouped and sorted in this order.';
+
   return `
     <section class="panel" data-testid="category-manager">
       <div class="panel-header">
         <div>
-          <h2>Category Order</h2>
-          <p class="muted">Tasks in both the web app and Fitbit watch are grouped and sorted in this order.</p>
+          <h2>${escapeHtml(heading)}</h2>
+          <p class="muted">${escapeHtml(subtitle)}</p>
         </div>
       </div>
 

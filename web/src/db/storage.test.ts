@@ -159,4 +159,45 @@ describe('IndexedDbSyncStorage and settings persistence', () => {
     });
     expect(await loadCategoryOrder()).toEqual(['Produce', 'Bakery', 'Dairy']);
   });
+
+  it('stores and loads independent category orders per task list with fallback to global categories', async () => {
+    const shoppingHref = '/remote.php/dav/calendars/alice/shopping/';
+    const hardwareHref = '/remote.php/dav/calendars/alice/hardware/';
+    const workHref = '/remote.php/dav/calendars/alice/work/';
+
+    const backend = createMockCalDav({
+      auth: { username: 'alice', password: 'secret' },
+      files: [
+        {
+          path: 'Notes/tasker-config.json',
+          content: JSON.stringify({
+            categories: ['Produce', 'Dairy'],
+            categoriesByCalendar: {
+              [shoppingHref]: ['Produce', 'Bakery', 'Dairy'],
+              [hardwareHref]: ['Electrical', 'Fasteners'],
+            },
+          }),
+          contentType: 'application/json',
+        },
+      ],
+    });
+
+    await fetchRemoteConfig(
+      {
+        baseUrl: 'https://cloud.example.com',
+        username: 'alice',
+        appPassword: 'secret',
+        configPath: 'Notes/tasker-config.json',
+      },
+      backend.createFetch(),
+    );
+
+    expect(await loadCategoryOrder(shoppingHref)).toEqual(['Produce', 'Bakery', 'Dairy']);
+    expect(await loadCategoryOrder(hardwareHref)).toEqual(['Electrical', 'Fasteners']);
+    expect(await loadCategoryOrder(workHref)).toEqual(['Produce', 'Dairy']); // fallback
+
+    await saveCategoryOrder(['Tools', 'Electrical', 'Fasteners'], hardwareHref);
+    expect(await loadCategoryOrder(hardwareHref)).toEqual(['Tools', 'Electrical', 'Fasteners']);
+    expect(await loadCategoryOrder(shoppingHref)).toEqual(['Produce', 'Bakery', 'Dairy']);
+  });
 });

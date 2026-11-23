@@ -59,12 +59,88 @@ textarea {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  position: relative;
 }
 
 .brand h1 {
   margin: 0;
   font-size: 1.25rem;
   letter-spacing: -0.02em;
+}
+
+.list-switcher {
+  position: relative;
+}
+
+.list-switcher-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 0.25rem 0.5rem;
+  margin-left: -0.5rem;
+  cursor: pointer;
+}
+
+.list-switcher-btn:hover:not(:disabled),
+.list-switcher-btn[aria-expanded='true'] {
+  background: var(--surface-subtle);
+  border-color: var(--border);
+}
+
+.list-switcher-chevron {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.list-switcher-menu {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: -0.5rem;
+  min-width: 220px;
+  max-width: min(320px, 85vw);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 28px rgba(17, 24, 39, 0.14);
+  padding: 0.35rem;
+  z-index: 40;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.list-switcher-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: var(--text);
+  border: 0;
+  border-radius: 7px;
+  padding: 0.5rem 0.65rem;
+  font-size: 0.94rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.list-switcher-option:hover:not(:disabled) {
+  background: var(--surface-subtle);
+}
+
+.list-switcher-option.active {
+  background: #eff6ff;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.panel-header-compact {
+  align-items: center;
 }
 
 .pending-badge {

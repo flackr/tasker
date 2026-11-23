@@ -72,6 +72,7 @@ export function createCompanionSync(options) {
 
   let activeCalendarHref = null;
   let categoryOrder = [];
+  let cachedConfig = null;
   let cachedConfigDefaultHref;
   /** Map<calendarHref, Map<uid, Task>> */
   const cacheByCalendar = new Map();
@@ -99,10 +100,12 @@ export function createCompanionSync(options) {
   }
 
   async function loadRemoteConfig(clients) {
+    cachedConfig = null;
     cachedConfigDefaultHref = undefined;
     if (!clients.credentials.configPath) return;
     try {
       const config = await clients.webdav.getJsonFile(clients.credentials.configPath);
+      cachedConfig = config && typeof config === "object" ? config : null;
       const configured = resolveConfiguredCategories(config);
       if (configured) {
         categoryOrder = configured;
@@ -177,14 +180,17 @@ export function createCompanionSync(options) {
         calCache.set(tasks[i].uid, tasks[i]);
       }
 
+      const listCategoryOrder =
+        resolveConfiguredCategories(cachedConfig, calendarHref) || categoryOrder;
+
       const compact = sortTasksByCategory(
         tasks.map((t) => toCompactTask(t)),
-        categoryOrder,
+        listCategoryOrder,
       );
       const messages = chunkTasksPayload(compact, {
         maxBytes: maxChunkBytes,
         calendarHref,
-        categoryOrder,
+        categoryOrder: listCategoryOrder,
       });
 
       for (let i = 0; i < messages.length; i++) {

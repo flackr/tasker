@@ -153,6 +153,7 @@ test('US-002: User manages tasks and customizes category order', async ({ page }
     await page.getByRole('button', { name: 'Delete' }).click();
     await page.getByRole('button', { name: 'Confirm Delete' }).click();
     await expect(page.locator('[data-task-uid="apples"]')).toBeHidden();
+    await expect(page.getByTestId('pending-badge')).toBeHidden();
 
     await tester.step('reordered-and-deleted', {
       description: 'Task list reflects updated category order (Dairy first) and removed item is deleted on server',

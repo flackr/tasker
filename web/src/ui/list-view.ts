@@ -9,7 +9,6 @@ export interface ListViewProps {
   conflicts: SyncConflict[];
   statusMessage: string;
   hideCompleted: boolean;
-  calendarName?: string;
   promptApiAvailability: PromptApiAvailability;
   autoCategorizeProgress: string | null;
 }
@@ -62,7 +61,6 @@ export function renderListView({
   conflicts,
   statusMessage,
   hideCompleted,
-  calendarName,
   promptApiAvailability,
   autoCategorizeProgress,
 }: ListViewProps): string {
@@ -83,11 +81,8 @@ export function renderListView({
 
   return `
     <section class="panel" data-testid="list-panel">
-      <div class="panel-header">
-        <div>
-          <h2>${escapeHtml(calendarName || 'Task List')}</h2>
-          <p class="status status-inline" data-testid="status">${escapeHtml(statusMessage)}</p>
-        </div>
+      <div class="panel-header panel-header-compact">
+        <p class="status status-inline" data-testid="status">${escapeHtml(statusMessage)}</p>
         <div class="list-controls">
           ${
             canAutoCategorize && !autoCategorizeProgress && uncategorizedCount > 0

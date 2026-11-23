@@ -380,6 +380,72 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
     expect(gui).toMatch(/<use\s+id="list-tile-list"\s+href="#tile-list-item"\s+class="tile-list-item"\s+height="58">/);
   });
 
+  it('sorts each task list using its own per-calendar categoriesByCalendar order', async () => {
+    const shoppingHref = '/remote.php/dav/calendars/alice/shopping/';
+    const hardwareHref = '/remote.php/dav/calendars/alice/hardware/';
+    const backend = createMockCalDav({
+      auth: { username: 'alice', password: 'secret' },
+      calendars: [
+        { slug: 'shopping', displayName: 'Shopping', components: ['VTODO'] },
+        { slug: 'hardware', displayName: 'Hardware', components: ['VTODO'] },
+      ],
+      tasks: [
+        { uid: 'milk', calendarSlug: 'shopping', etag: 's1', ics: makeIcs('milk', 'Milk', 'Dairy') },
+        { uid: 'apples', calendarSlug: 'shopping', etag: 's2', ics: makeIcs('apples', 'Apples', 'Produce') },
+        { uid: 'screws', calendarSlug: 'hardware', etag: 'h1', ics: makeIcs('screws', 'Wood Screws', 'Fasteners') },
+        { uid: 'wire', calendarSlug: 'hardware', etag: 'h2', ics: makeIcs('wire', 'Romex Wire', 'Electrical') },
+      ],
+      files: [
+        {
+          path: 'Notes/tasker-config.json',
+          content: JSON.stringify({
+            categoriesByCalendar: {
+              [shoppingHref]: ['Produce', 'Dairy'],
+              [hardwareHref]: ['Electrical', 'Fasteners'],
+            },
+          }),
+          contentType: 'application/json',
+        },
+      ],
+    });
+    const settingsStorage = createMemorySettings({
+      app_server: JSON.stringify({ name: 'https://cloud.example.com' }),
+      app_username: JSON.stringify({ name: 'alice' }),
+      app_password: JSON.stringify({ name: 'secret' }),
+      app_config_path: JSON.stringify({ name: 'Notes/tasker-config.json' }),
+    });
+    const fs = createMemoryFs();
+    const ui = createMockWatchDocument();
+    let watchApp: ReturnType<typeof createWatchApp>;
+    const companion = createCompanionSync({
+      settingsStorage,
+      fetch: backend.createFetch(),
+      send: (msg: unknown) => watchApp.onMessage(msg),
+    });
+    watchApp = createWatchApp({
+      document: ui.doc,
+      fs,
+      send: (msg: unknown) => void companion.onMessage(msg),
+    });
+
+    watchApp.start();
+    await flushPromises();
+
+    // Open Shopping → Produce before Dairy
+    ui.listTiles[0].touch.onclick!();
+    await flushPromises();
+    expect(ui.taskTiles[0].checkbox.text).toBe('Apples');
+    expect(ui.taskTiles[1].checkbox.text).toBe('Milk');
+
+    // Switch to Hardware → Electrical before Fasteners
+    ui.backBtn.onclick!();
+    await flushPromises();
+    ui.listTiles[1].touch.onclick!();
+    await flushPromises();
+    expect(ui.taskTiles[0].checkbox.text).toBe('Romex Wire');
+    expect(ui.taskTiles[1].checkbox.text).toBe('Wood Screws');
+  });
+
   it('immediately renders cached list on restart and reconciles: newer server edits win, newer watch toggles sync up', async () => {
     const tBase = Date.parse('2026-05-01T10:00:00.000Z');
     const tWatchOffline = Date.parse('2026-05-01T10:05:00.000Z');

@@ -35,6 +35,7 @@ import {
   saveTaskerConfig,
 } from './db/storage';
 import { registerServiceWorker, requestBackgroundFlush } from './sw-register';
+import { escapeAttr, escapeHtml } from './ui/html';
 import { renderCategoryManager } from './ui/category-manager';
 import { renderListView } from './ui/list-view';
 import { renderSettingsView } from './ui/settings-view';
@@ -63,6 +64,7 @@ interface AppState {
   autoCategorizeProgress: string | null;
   missingConfigPath: string | null;
   creatingConfig: boolean;
+  listMenuOpen: boolean;
 }
 
 const appRoot = document.querySelector<HTMLDivElement>('#app');
@@ -93,6 +95,7 @@ const state: AppState = {
   autoCategorizeProgress: null,
   missingConfigPath: null,
   creatingConfig: false,
+  listMenuOpen: false,
 };
 
 function createEngine(credentials: Credentials): SyncEngine {
@@ -101,7 +104,7 @@ function createEngine(credentials: Credentials): SyncEngine {
 }
 
 async function refreshLocalState(): Promise<void> {
-  state.categoryOrder = await loadCategoryOrder();
+  state.categoryOrder = await loadCategoryOrder(state.credentials?.calendarHref);
   state.autoCategorize = await loadAutoCategorize();
   state.calendars = await storage.calendars.getAllCalendars();
   state.pendingCount = (await storage.queue.list()).length;
@@ -109,6 +112,42 @@ async function refreshLocalState(): Promise<void> {
     state.tasks = await storage.tasks.getTasksByCalendar(state.credentials.calendarHref);
   } else {
     state.tasks = [];
+  }
+}
+
+async function switchCalendar(
+  calendarHref: string,
+  options: { forceSync?: boolean; openListTab?: boolean } = {},
+): Promise<void> {
+  if (!state.credentials || !calendarHref) return;
+  autoCategorizeAbort?.abort();
+  autoCategorizeAbort = null;
+  state.autoCategorizeProgress = null;
+  attemptedAutoCategorizeUids.clear();
+  state.listMenuOpen = false;
+  state.editingUid = null;
+  state.confirmingDelete = false;
+  state.renamingCategoryIndex = null;
+  state.conflicts = [];
+
+  const updatedCreds: Credentials = { ...state.credentials, calendarHref };
+  state.credentials = updatedCreds;
+  await saveCredentials(updatedCreds);
+  syncEngine = createEngine(updatedCreds);
+  await refreshLocalState();
+
+  if (options.openListTab || state.tab === 'settings') {
+    state.tab = 'list';
+  }
+  state.statusMessage = state.isOnline
+    ? state.tasks.length > 0
+      ? `Loaded ${state.tasks.length} cached task(s). Syncing…`
+      : 'Loading tasks…'
+    : `Offline — showing ${state.tasks.length} cached task(s).`;
+  render();
+
+  if (navigator.onLine) {
+    await runSync({ force: Boolean(options.forceSync) || state.tasks.length === 0 });
   }
 }
 
@@ -166,6 +205,23 @@ async function bootstrap(): Promise<void> {
     }
   });
 
+  document.addEventListener('click', (event) => {
+    if (!state.listMenuOpen) return;
+    const target = event.target as Node | null;
+    const switcher = appRoot!.querySelector('.list-switcher');
+    if (switcher && target && !switcher.contains(target)) {
+      state.listMenuOpen = false;
+      render();
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && state.listMenuOpen) {
+      state.listMenuOpen = false;
+      render();
+    }
+  });
+
   registerServiceWorker(() => {
     if (state.credentials?.calendarHref) {
       void runSync({ force: false });
@@ -189,11 +245,17 @@ async function discoverCalendars(credentials: Credentials): Promise<void> {
     const calendars = await client.listTaskCalendars();
 
     for (const cal of calendars) {
-      await storage.calendars.putCalendar(cal);
+      // Preserve previously synced ctag only; do not stamp remote ctag before tasks are fetched
+      const existing = await storage.calendars.getCalendar(cal.href);
+      await storage.calendars.putCalendar({
+        href: cal.href,
+        displayName: cal.displayName,
+        ...(existing?.ctag ? { ctag: existing.ctag } : {}),
+      });
     }
 
     state.calendars = calendars;
-    state.categoryOrder = await loadCategoryOrder();
+    state.categoryOrder = await loadCategoryOrder(credentials.calendarHref);
 
     if (calendars.length === 0) {
       state.connectionState = 'connected';
@@ -208,12 +270,7 @@ async function discoverCalendars(credentials: Credentials): Promise<void> {
     const matched = preferredHref && calendars.some((c) => c.href === preferredHref);
 
     if (matched && preferredHref && !state.missingConfigPath) {
-      const updatedCreds = { ...credentials, calendarHref: preferredHref };
-      state.credentials = updatedCreds;
-      await saveCredentials(updatedCreds);
-      syncEngine = createEngine(updatedCreds);
-      state.tab = 'list';
-      await runSync({ force: true });
+      await switchCalendar(preferredHref, { forceSync: true, openListTab: true });
     } else {
       state.connectionState = 'connected';
       state.statusMessage = state.missingConfigPath
@@ -357,15 +414,24 @@ async function maybeAutoCategorize(manualTrigger: boolean): Promise<void> {
 }
 
 async function persistCategories(categories: string[]): Promise<void> {
+  const calendarHref = state.credentials?.calendarHref;
   state.categoryOrder = categories;
   attemptedAutoCategorizeUids.clear();
   render();
-  await saveCategoryOrder(categories);
+  await saveCategoryOrder(categories, calendarHref);
 
   if (state.credentials?.configPath && navigator.onLine) {
     try {
       const existing = (await loadTaskerConfig()) ?? {};
-      const nextConfig = { ...existing, categories };
+      const nextConfig = calendarHref
+        ? {
+            ...existing,
+            categoriesByCalendar: {
+              ...(existing.categoriesByCalendar ?? {}),
+              [calendarHref]: categories.slice(),
+            },
+          }
+        : { ...existing, categories: categories.slice() };
       delete nextConfig.aisles;
       await saveTaskerConfig(nextConfig);
       const webdav = createWebDavClient(state.credentials);
@@ -379,6 +445,60 @@ async function persistCategories(categories: string[]): Promise<void> {
 function getActiveCalendarName(): string | undefined {
   if (!state.credentials?.calendarHref) return undefined;
   return state.calendars.find((c) => c.href === state.credentials?.calendarHref)?.displayName;
+}
+
+function renderBrandTitle(): string {
+  const activeHref = state.credentials?.calendarHref;
+  const activeName = getActiveCalendarName();
+  if (!activeHref) {
+    return '<h1>tasker</h1>';
+  }
+
+  const title = activeName || 'Task List';
+  const menuItems = state.calendars
+    .map((cal) => {
+      const isActive = cal.href === activeHref;
+      return `
+        <button
+          type="button"
+          role="menuitemradio"
+          aria-checked="${isActive ? 'true' : 'false'}"
+          class="list-switcher-option ${isActive ? 'active' : ''}"
+          data-switch-calendar="${escapeAttr(cal.href)}"
+          data-testid="list-option-${escapeAttr(cal.displayName)}"
+        >
+          <span>${escapeHtml(cal.displayName)}</span>
+          ${
+            isActive
+              ? '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8.5L6.5 12L13 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+              : ''
+          }
+        </button>`;
+    })
+    .join('');
+
+  return `
+    <div class="list-switcher">
+      <button
+        type="button"
+        id="list-switcher-btn"
+        class="list-switcher-btn"
+        data-testid="list-switcher-btn"
+        aria-haspopup="menu"
+        aria-expanded="${state.listMenuOpen ? 'true' : 'false'}"
+      >
+        <h1>${escapeHtml(title)}</h1>
+        <svg class="list-switcher-chevron" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M4 6L8 10L12 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
+      ${
+        state.listMenuOpen
+          ? `<div class="list-switcher-menu" role="menu" data-testid="list-switcher-menu">${menuItems || '<div class="muted">No task lists found</div>'}</div>`
+          : ''
+      }
+    </div>
+  `;
 }
 
 function render(): void {
@@ -395,7 +515,6 @@ function render(): void {
           conflicts: state.conflicts,
           statusMessage: state.statusMessage,
           hideCompleted: state.hideCompleted,
-          calendarName: getActiveCalendarName(),
           promptApiAvailability: state.promptApiAvailability,
           autoCategorizeProgress: state.autoCategorizeProgress,
         })
@@ -403,6 +522,7 @@ function render(): void {
         ? renderCategoryManager({
             categories: state.categoryOrder,
             renamingIndex: state.renamingCategoryIndex,
+            calendarName: getActiveCalendarName(),
           })
         : renderSettingsView({
             credentials: state.credentials,
@@ -419,7 +539,7 @@ function render(): void {
     <div class="app-shell">
       <header class="app-header">
         <div class="brand">
-          <h1>tasker</h1>
+          ${renderBrandTitle()}
           ${state.pendingCount > 0 ? `<span class="pending-badge" data-testid="pending-badge">${state.pendingCount} pending</span>` : ''}
         </div>
         <nav class="nav-tabs" aria-label="Main navigation">
@@ -453,11 +573,36 @@ function render(): void {
 }
 
 function bindEvents(): void {
+  // Header: list switcher menu
+  appRoot!
+    .querySelector<HTMLButtonElement>('#list-switcher-btn')
+    ?.addEventListener('click', (event) => {
+      event.stopPropagation();
+      state.listMenuOpen = !state.listMenuOpen;
+      render();
+    });
+
+  appRoot!
+    .querySelectorAll<HTMLButtonElement>('[data-switch-calendar]')
+    .forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const href = btn.dataset.switchCalendar;
+        if (!href) return;
+        if (href === state.credentials?.calendarHref) {
+          state.listMenuOpen = false;
+          render();
+          return;
+        }
+        void switchCalendar(href);
+      });
+    });
+
   // Navigation tabs
   appRoot!.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const next = btn.dataset.tab as ActiveTab;
       if (!next) return;
+      state.listMenuOpen = false;
       state.tab = next;
       state.renamingCategoryIndex = null;
       render();
@@ -507,6 +652,7 @@ function bindEvents(): void {
     state.autoCategorizeProgress = null;
     state.missingConfigPath = null;
     state.creatingConfig = false;
+    state.listMenuOpen = false;
     state.connectionState = 'idle';
     state.statusMessage = 'Credentials and local cache cleared.';
     state.tab = 'settings';
@@ -525,10 +671,14 @@ function bindEvents(): void {
       render();
 
       try {
+        const calHref = state.credentials.calendarHref;
         await createRemoteConfig(state.credentials, {
           categories: state.categoryOrder.slice(),
-          ...(state.credentials.calendarHref
-            ? { defaultCalendarHref: state.credentials.calendarHref }
+          ...(calHref
+            ? {
+                defaultCalendarHref: calHref,
+                categoriesByCalendar: { [calHref]: state.categoryOrder.slice() },
+              }
             : {}),
         });
         state.creatingConfig = false;
@@ -560,15 +710,7 @@ function bindEvents(): void {
     const formData = new FormData(calForm);
     const calendarHref = String(formData.get('calendarHref') ?? '');
     if (!calendarHref) return;
-    const credentials: Credentials = { ...state.credentials, calendarHref };
-    state.credentials = credentials;
-    await saveCredentials(credentials);
-    syncEngine = createEngine(credentials);
-    attemptedAutoCategorizeUids.clear();
-    state.tab = 'list';
-    state.statusMessage = 'Loading tasks…';
-    render();
-    await runSync({ force: true });
+    await switchCalendar(calendarHref, { forceSync: true, openListTab: true });
   });
 
   // Settings: auto-categorize toggle

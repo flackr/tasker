@@ -420,7 +420,7 @@ interface Task {
 
 ### Category Order & Auto-Categorization
 
-CalDAV `CATEGORIES` values are used to tag and organize tasks (for example, store sections for grocery lists, or project areas for general tasks). The app maintains an ordered list of category names (stored locally in IndexedDB and optionally synced via `tasker-config.json`'s `categories` array — with backwards-compatible fallback for legacy `aisles`) that controls grouping and sort order in both the PWA and Fitbit watch. Users can add, rename, reorder, and remove categories from the **Categories** tab.
+CalDAV `CATEGORIES` values are used to tag and organize tasks (for example, store sections for grocery lists, or project areas for general tasks). Each task list maintains its own ordered list of categories (stored locally in IndexedDB and optionally synced via `tasker-config.json`'s `categoriesByCalendar` map, with fallback to top-level `categories` or legacy `aisles`) that controls grouping and sort order in both the PWA and Fitbit watch. In the PWA, the active task list's name serves as the clickable main title to switch lists from any view, and users can add, rename, reorder, and remove categories per list from the **Categories** tab.
 
 When the user's browser supports the on-device [Web Prompt API](https://developer.mozilla.org/en-US/docs/Web/API/Prompt_API) (`LanguageModel`), the PWA offers an **Auto-Categorize** setting in Settings (plus an on-demand trigger on the task list). When enabled, the PWA steps one by one through uncategorized tasks (`categories.length === 0`) and prompts the local on-device model (constrained to the configured categories via JSON Schema `responseConstraint`, or `null` if none fit) without sending any task data to an external server.
 

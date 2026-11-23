@@ -8,7 +8,13 @@ import {
   type TaskerConfig,
 } from '@tasker/core';
 import { getTaskerDb } from './db/index';
-import { clearAllLocalData, saveCategoryOrder, saveTaskerConfig } from './db/storage';
+import {
+  clearAllLocalData,
+  loadCategoriesByCalendar,
+  saveCategoriesByCalendar,
+  saveCategoryOrder,
+  saveTaskerConfig,
+} from './db/storage';
 
 const CREDENTIALS_KEY = 'default';
 
@@ -36,6 +42,24 @@ export async function clearCredentials(): Promise<void> {
   await clearAllLocalData();
 }
 
+async function applyRemoteConfigLocally(config: TaskerConfig): Promise<void> {
+  await saveTaskerConfig(config);
+  if (config.categoriesByCalendar && typeof config.categoriesByCalendar === 'object') {
+    const existing = await loadCategoriesByCalendar();
+    const merged: Record<string, string[]> = { ...existing };
+    for (const [href, list] of Object.entries(config.categoriesByCalendar)) {
+      if (Array.isArray(list)) {
+        merged[href] = list.slice();
+      }
+    }
+    await saveCategoriesByCalendar(merged);
+  }
+  const categories = resolveConfiguredCategories(config);
+  if (categories && categories.length > 0) {
+    await saveCategoryOrder(categories);
+  }
+}
+
 /**
  * Fetches `tasker-config.json` from the user-configured WebDAV path when set,
  * distinguishing a missing file (`not_found` / HTTP 404) from other errors so
@@ -51,11 +75,7 @@ export async function fetchRemoteConfig(
   try {
     const webdav = createWebDavClient(credentials, fetchImpl ? { fetch: fetchImpl } : undefined);
     const config = await webdav.getJsonFile<TaskerConfig>(configPath);
-    await saveTaskerConfig(config);
-    const categories = resolveConfiguredCategories(config);
-    if (categories && categories.length > 0) {
-      await saveCategoryOrder(categories);
-    }
+    await applyRemoteConfigLocally(config);
     return { status: 'loaded', config };
   } catch (error) {
     if (error instanceof CalDavError && error.code === 'NOT_FOUND') {
@@ -85,11 +105,7 @@ export async function createRemoteConfig(
 
   const webdav = createWebDavClient(credentials, fetchImpl ? { fetch: fetchImpl } : undefined);
   await webdav.putJsonFile(configPath, config, { createParents: true });
-  await saveTaskerConfig(config);
-  const categories = resolveConfiguredCategories(config);
-  if (categories && categories.length > 0) {
-    await saveCategoryOrder(categories);
-  }
+  await applyRemoteConfigLocally(config);
   return config;
 }
 

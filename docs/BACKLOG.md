@@ -113,12 +113,15 @@ This document tracks all planned work towards building the complete tasker ecosy
 - [x] Implement category-grouped task list view (`ui/list-view.ts`) using `@tasker/core/watch` `sortTasksByCategory`
 - [x] Quick-add bar and one-tap completion toggle (optimistic local update + sync)
 - [x] Implement task editor (`ui/task-editor.ts`): add/edit summary, categories, notes, priority, and delete with confirmation
-- [x] Implement category manager (`ui/category-manager.ts`): add, rename, reorder, delete categories (persisted locally and synced to `tasker-config.json`)
+- [x] Implement category manager (`ui/category-manager.ts`): add, rename, reorder, delete categories per task list (persisted locally and synced via `categoriesByCalendar` in `tasker-config.json`)
+- [x] Show the active task list title as the clickable main header title to switch lists from anywhere in the PWA
 - [x] Implement on-device AI auto-categorization (`web/src/ai/categorizer.ts`) using the Web Prompt API (`LanguageModel`) with a Settings toggle and step-by-step progress UI
 - [x] Write Playwright E2E + zero-pixel visual regression scenarios:
   - [x] Task CRUD & category-sorted task list (`web/e2e/002-task-crud/`)
   - [x] Offline edits → reconnect → automatic sync & conflict (`412`) resolution flow (`web/e2e/003-offline-and-conflicts/`)
   - [x] On-device AI Prompt API auto-categorization (`web/e2e/004-auto-categorize/`)
+  - [x] Offer to create missing `tasker-config.json` on WebDAV 404 (`web/e2e/005-create-config/`)
+  - [x] Quick main-title list switching & per-list categories (`web/e2e/006-list-switching/`)
 
 ---
 

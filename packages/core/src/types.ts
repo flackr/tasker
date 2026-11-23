@@ -58,7 +58,10 @@ export interface CategoryConfig {
 export interface TaskerConfig {
   defaultCalendarHref?: string;
   recipesPath?: string;
+  /** Default/fallback category order used when a list has no per-list override. */
   categories?: string[];
+  /** Per-list category orders keyed by CalDAV calendar href. */
+  categoriesByCalendar?: Record<string, string[]>;
   /** @deprecated Legacy alias supported when reading older tasker-config.json files. */
   aisles?: string[];
 }
@@ -75,8 +78,18 @@ export interface SyncOperation {
   queuedAt: string;
 }
 
-export function resolveConfiguredCategories(config?: TaskerConfig): string[] | undefined {
+export function resolveConfiguredCategories(
+  config?: TaskerConfig,
+  calendarHref?: string,
+): string[] | undefined {
   if (!config) return undefined;
+  if (
+    calendarHref &&
+    config.categoriesByCalendar &&
+    Array.isArray(config.categoriesByCalendar[calendarHref])
+  ) {
+    return config.categoriesByCalendar[calendarHref].slice();
+  }
   if (Array.isArray(config.categories)) return config.categories.slice();
   if (Array.isArray(config.aisles)) return config.aisles.slice();
   return undefined;
