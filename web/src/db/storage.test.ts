@@ -1,6 +1,13 @@
 import { createMockCalDav } from '@tasker/mock-caldav';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { bootstrapRemoteConfig, clearCredentials, loadCredentials, saveCredentials } from '../auth';
+import {
+  bootstrapRemoteConfig,
+  clearCredentials,
+  createRemoteConfig,
+  fetchRemoteConfig,
+  loadCredentials,
+  saveCredentials,
+} from '../auth';
 import {
   clearAllLocalData,
   DEFAULT_CATEGORIES,
@@ -117,5 +124,39 @@ describe('IndexedDbSyncStorage and settings persistence', () => {
     expect(await loadCredentials()).toBeUndefined();
     expect(await loadCategoryOrder()).toEqual(DEFAULT_CATEGORIES);
     expect(await loadAutoCategorize()).toBe(false);
+  });
+
+  it('reports not_found when remote config does not exist and creates it on demand', async () => {
+    const backend = createMockCalDav({
+      auth: { username: 'alice', password: 'secret' },
+    });
+    const creds = {
+      baseUrl: 'https://cloud.example.com',
+      username: 'alice',
+      appPassword: 'secret',
+      configPath: 'Notes/tasker-config.json',
+    };
+
+    const missing = await fetchRemoteConfig(creds, backend.createFetch());
+    expect(missing).toEqual({ status: 'not_found', path: 'Notes/tasker-config.json' });
+
+    await createRemoteConfig(
+      creds,
+      { categories: ['Produce', 'Bakery', 'Dairy'] },
+      backend.createFetch(),
+    );
+
+    const createdContent = backend.getFile('Notes/tasker-config.json');
+    expect(createdContent).toBeTruthy();
+    expect(JSON.parse(createdContent!)).toEqual({
+      categories: ['Produce', 'Bakery', 'Dairy'],
+    });
+
+    const loaded = await fetchRemoteConfig(creds, backend.createFetch());
+    expect(loaded).toEqual({
+      status: 'loaded',
+      config: { categories: ['Produce', 'Bakery', 'Dairy'] },
+    });
+    expect(await loadCategoryOrder()).toEqual(['Produce', 'Bakery', 'Dairy']);
   });
 });

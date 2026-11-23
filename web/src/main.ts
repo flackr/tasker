@@ -19,8 +19,9 @@ import {
   type PromptApiAvailability,
 } from './ai/categorizer';
 import {
-  bootstrapRemoteConfig,
   clearCredentials,
+  createRemoteConfig,
+  fetchRemoteConfig,
   loadCredentials,
   saveCredentials,
 } from './auth';
@@ -60,6 +61,8 @@ interface AppState {
   autoCategorize: boolean;
   promptApiAvailability: PromptApiAvailability;
   autoCategorizeProgress: string | null;
+  missingConfigPath: string | null;
+  creatingConfig: boolean;
 }
 
 const appRoot = document.querySelector<HTMLDivElement>('#app');
@@ -88,6 +91,8 @@ const state: AppState = {
   autoCategorize: false,
   promptApiAvailability: 'unsupported',
   autoCategorizeProgress: null,
+  missingConfigPath: null,
+  creatingConfig: false,
 };
 
 function createEngine(credentials: Credentials): SyncEngine {
@@ -171,10 +176,15 @@ async function bootstrap(): Promise<void> {
 async function discoverCalendars(credentials: Credentials): Promise<void> {
   state.connectionState = 'connecting';
   state.statusMessage = 'Connecting…';
+  state.missingConfigPath = null;
+  state.creatingConfig = false;
   render();
 
   try {
-    const remoteConfig = await bootstrapRemoteConfig(credentials);
+    const configResult = await fetchRemoteConfig(credentials);
+    const remoteConfig = configResult.status === 'loaded' ? configResult.config : undefined;
+    state.missingConfigPath = configResult.status === 'not_found' ? configResult.path : null;
+
     const client = createCalDavClient(credentials);
     const calendars = await client.listTaskCalendars();
 
@@ -187,7 +197,9 @@ async function discoverCalendars(credentials: Credentials): Promise<void> {
 
     if (calendars.length === 0) {
       state.connectionState = 'connected';
-      state.statusMessage = 'Connected, but no VTODO task lists were found.';
+      state.statusMessage = state.missingConfigPath
+        ? `Connected, no VTODO task lists found. Config file "${state.missingConfigPath}" does not exist yet.`
+        : 'Connected, but no VTODO task lists were found.';
       render();
       return;
     }
@@ -195,7 +207,7 @@ async function discoverCalendars(credentials: Credentials): Promise<void> {
     const preferredHref = credentials.calendarHref || remoteConfig?.defaultCalendarHref;
     const matched = preferredHref && calendars.some((c) => c.href === preferredHref);
 
-    if (matched && preferredHref) {
+    if (matched && preferredHref && !state.missingConfigPath) {
       const updatedCreds = { ...credentials, calendarHref: preferredHref };
       state.credentials = updatedCreds;
       await saveCredentials(updatedCreds);
@@ -204,7 +216,9 @@ async function discoverCalendars(credentials: Credentials): Promise<void> {
       await runSync({ force: true });
     } else {
       state.connectionState = 'connected';
-      state.statusMessage = `Connected as ${credentials.username}. Select a task list to load.`;
+      state.statusMessage = state.missingConfigPath
+        ? `Connected as ${credentials.username}. Config file "${state.missingConfigPath}" was not found — create it below or select a task list.`
+        : `Connected as ${credentials.username}. Select a task list to load.`;
       render();
     }
   } catch (error) {
@@ -355,7 +369,7 @@ async function persistCategories(categories: string[]): Promise<void> {
       delete nextConfig.aisles;
       await saveTaskerConfig(nextConfig);
       const webdav = createWebDavClient(state.credentials);
-      await webdav.putJsonFile(state.credentials.configPath, nextConfig);
+      await webdav.putJsonFile(state.credentials.configPath, nextConfig, { createParents: true });
     } catch {
       // Local category update still succeeds if remote config write fails
     }
@@ -397,6 +411,8 @@ function render(): void {
             connectionState: state.connectionState,
             autoCategorize: state.autoCategorize,
             promptApiAvailability: state.promptApiAvailability,
+            missingConfigPath: state.missingConfigPath,
+            creatingConfig: state.creatingConfig,
           });
 
   appRoot!.innerHTML = `
@@ -489,12 +505,52 @@ function bindEvents(): void {
     state.editingUid = null;
     state.autoCategorize = false;
     state.autoCategorizeProgress = null;
+    state.missingConfigPath = null;
+    state.creatingConfig = false;
     state.connectionState = 'idle';
     state.statusMessage = 'Credentials and local cache cleared.';
     state.tab = 'settings';
     state.categoryOrder = await loadCategoryOrder();
     render();
   });
+
+  // Settings: create missing config JSON file on Nextcloud
+  appRoot!
+    .querySelector<HTMLButtonElement>('#create-config-btn')
+    ?.addEventListener('click', async () => {
+      if (!state.credentials?.configPath || state.creatingConfig) return;
+      const targetPath = state.credentials.configPath.trim();
+      state.creatingConfig = true;
+      state.statusMessage = `Creating ${targetPath}…`;
+      render();
+
+      try {
+        await createRemoteConfig(state.credentials, {
+          categories: state.categoryOrder.slice(),
+          ...(state.credentials.calendarHref
+            ? { defaultCalendarHref: state.credentials.calendarHref }
+            : {}),
+        });
+        state.creatingConfig = false;
+        state.missingConfigPath = null;
+        state.statusMessage = `Created ${targetPath} on Nextcloud.`;
+        render();
+      } catch (error) {
+        state.creatingConfig = false;
+        state.statusMessage =
+          error instanceof Error
+            ? `Failed to create ${targetPath}: ${error.message}`
+            : `Failed to create ${targetPath}.`;
+        render();
+      }
+    });
+
+  appRoot!
+    .querySelector<HTMLButtonElement>('#dismiss-missing-config')
+    ?.addEventListener('click', () => {
+      state.missingConfigPath = null;
+      render();
+    });
 
   // Settings: calendar picker
   const calForm = appRoot!.querySelector<HTMLFormElement>('#calendar-form');

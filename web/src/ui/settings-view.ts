@@ -9,6 +9,8 @@ export interface SettingsViewProps {
   connectionState: 'idle' | 'connecting' | 'connected' | 'error' | 'offline';
   autoCategorize: boolean;
   promptApiAvailability: PromptApiAvailability;
+  missingConfigPath?: string | null;
+  creatingConfig?: boolean;
 }
 
 function getPromptApiBadge(availability: PromptApiAvailability): { label: string; className: string } {
@@ -33,6 +35,8 @@ export function renderSettingsView({
   connectionState,
   autoCategorize,
   promptApiAvailability,
+  missingConfigPath,
+  creatingConfig,
 }: SettingsViewProps): string {
   const badgeClass = `conn-badge conn-${connectionState}`;
   const badgeLabel =
@@ -56,6 +60,7 @@ export function renderSettingsView({
         <span class="${badgeClass}" data-testid="connection-badge">${badgeLabel}</span>
       </div>
       <p class="status" data-testid="status">${escapeHtml(connectionStatus)}</p>
+      ${missingConfigPath ? renderMissingConfigBanner(missingConfigPath, Boolean(creatingConfig)) : ''}
       <form id="auth-form" class="stack-form">
         <label>
           <span>Nextcloud URL</span>
@@ -104,6 +109,28 @@ export function renderSettingsView({
         </p>
       </div>
     </section>
+  `;
+}
+
+function renderMissingConfigBanner(configPath: string, creating: boolean): string {
+  return `
+    <div class="config-prompt-banner" role="status" data-testid="missing-config-banner">
+      <div class="config-prompt-copy">
+        <strong>Config file not found</strong>
+        <p class="muted">
+          <code>${escapeHtml(configPath)}</code> does not exist on your Nextcloud server yet.
+          Create it now with your current categories so all your devices can share settings?
+        </p>
+      </div>
+      <div class="actions">
+        <button type="button" id="create-config-btn" data-testid="create-config-btn" ${creating ? 'disabled' : ''}>
+          ${creating ? 'Creating…' : 'Create config file'}
+        </button>
+        <button type="button" id="dismiss-missing-config" class="btn-ghost" data-testid="dismiss-missing-config" ${creating ? 'disabled' : ''}>
+          Skip for now
+        </button>
+      </div>
+    </div>
   `;
 }
 

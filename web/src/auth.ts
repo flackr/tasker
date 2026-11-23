@@ -1,4 +1,5 @@
 import {
+  CalDavError,
   createBasicAuthHeader as coreCreateBasicAuthHeader,
   createWebDavClient,
   resolveConfiguredCategories,
@@ -10,6 +11,12 @@ import { getTaskerDb } from './db/index';
 import { clearAllLocalData, saveCategoryOrder, saveTaskerConfig } from './db/storage';
 
 const CREDENTIALS_KEY = 'default';
+
+export type RemoteConfigResult =
+  | { status: 'none' }
+  | { status: 'loaded'; config: TaskerConfig }
+  | { status: 'not_found'; path: string }
+  | { status: 'error'; path: string; message: string };
 
 export function createBasicAuthHeader({ username, appPassword }: Credentials): string {
   return coreCreateBasicAuthHeader(username, appPassword);
@@ -31,14 +38,15 @@ export async function clearCredentials(): Promise<void> {
 
 /**
  * Fetches `tasker-config.json` from the user-configured WebDAV path when set,
- * persisting discovered category order and preferences to IndexedDB.
+ * distinguishing a missing file (`not_found` / HTTP 404) from other errors so
+ * the UI can offer to create the config file.
  */
-export async function bootstrapRemoteConfig(
+export async function fetchRemoteConfig(
   credentials: Credentials,
   fetchImpl?: FetchLike,
-): Promise<TaskerConfig | undefined> {
+): Promise<RemoteConfigResult> {
   const configPath = credentials.configPath?.trim();
-  if (!configPath) return undefined;
+  if (!configPath) return { status: 'none' };
 
   try {
     const webdav = createWebDavClient(credentials, fetchImpl ? { fetch: fetchImpl } : undefined);
@@ -48,9 +56,51 @@ export async function bootstrapRemoteConfig(
     if (categories && categories.length > 0) {
       await saveCategoryOrder(categories);
     }
-    return config;
-  } catch {
-    // Missing or unreadable remote config is non-fatal during initial setup
-    return undefined;
+    return { status: 'loaded', config };
+  } catch (error) {
+    if (error instanceof CalDavError && error.code === 'NOT_FOUND') {
+      return { status: 'not_found', path: configPath };
+    }
+    return {
+      status: 'error',
+      path: configPath,
+      message: error instanceof Error ? error.message : 'Failed to load config file',
+    };
   }
+}
+
+/**
+ * Creates a new `tasker-config.json` on the user's Nextcloud WebDAV server
+ * (creating parent directories if needed) and persists it to IndexedDB.
+ */
+export async function createRemoteConfig(
+  credentials: Credentials,
+  config: TaskerConfig,
+  fetchImpl?: FetchLike,
+): Promise<TaskerConfig> {
+  const configPath = credentials.configPath?.trim();
+  if (!configPath) {
+    throw new Error('Config JSON path is not set.');
+  }
+
+  const webdav = createWebDavClient(credentials, fetchImpl ? { fetch: fetchImpl } : undefined);
+  await webdav.putJsonFile(configPath, config, { createParents: true });
+  await saveTaskerConfig(config);
+  const categories = resolveConfiguredCategories(config);
+  if (categories && categories.length > 0) {
+    await saveCategoryOrder(categories);
+  }
+  return config;
+}
+
+/**
+ * Fetches `tasker-config.json` from the user-configured WebDAV path when set,
+ * persisting discovered category order and preferences to IndexedDB.
+ */
+export async function bootstrapRemoteConfig(
+  credentials: Credentials,
+  fetchImpl?: FetchLike,
+): Promise<TaskerConfig | undefined> {
+  const result = await fetchRemoteConfig(credentials, fetchImpl);
+  return result.status === 'loaded' ? result.config : undefined;
 }

@@ -153,7 +153,7 @@ During the initial setup flow the user provides:
 - Nextcloud URL
 - Username
 - App Password
-- **Tasker config JSON path** — the WebDAV path to a `tasker-config.json` file in their Nextcloud Files, e.g. `Notes/tasker-config.json`. This file stores user preferences such as the recipes folder path, aisle order, and calendar IDs. Storing the config path at auth time means new devices (PWA, Fitbit Companion) can discover all other settings by reading a single known file on Nextcloud.
+- **Tasker config JSON path** — the WebDAV path to a `tasker-config.json` file in their Nextcloud Files, e.g. `Notes/tasker-config.json`. This file stores user preferences such as the recipes folder path, category order, and default calendar. Storing the config path at auth time means new devices (PWA, Fitbit Companion) can discover all other settings by reading a single known file on Nextcloud. If the configured file does not exist yet (`404 Not Found`), the PWA offers a one-click **Create config file** prompt that writes an initial JSON config (creating any missing parent folders via WebDAV `MKCOL`).
 
 Credentials are stored client-side in IndexedDB and persist across sessions — the user does not need to re-enter them on every load. They are never transmitted to any server other than the user's own Nextcloud.
 

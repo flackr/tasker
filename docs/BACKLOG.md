@@ -100,7 +100,7 @@ This document tracks all planned work towards building the complete tasker ecosy
 - [x] Initial E2E authentication scenario (`web/e2e/001-auth/`) with zero-pixel screenshots
 - [x] Configure PWA installability: `manifest.webmanifest`, app icons (SVG + 192×192 / 512×512 PNG), and custom Service Worker (`public/sw.js`)
 - [x] Implement Settings screen (Nextcloud URL, username, app password, `tasker-config.json` WebDAV path, connection status, logout clearing cached data)
-- [x] Bootstrap preferences (aisle order, default calendar, recipes path) from `tasker-config.json` on first launch
+- [x] Bootstrap preferences (category order, default calendar, recipes path) from `tasker-config.json` on first launch, offering to create the file (and missing parent folders via `MKCOL`) when it does not exist yet (`404`)
 
 ### Offline Storage, Sync & Service Worker
 - [x] Implement IndexedDB adapter (`web/src/db/`) conforming to `@tasker/core` `TaskStore`, `CalendarMetadataStore`, and `SyncQueueStore` (`tasker-db`)

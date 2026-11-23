@@ -154,4 +154,53 @@ describe('WebDavClient integration against @tasker/mock-caldav', () => {
     const md = await webdav.getTextFile('Recipes/pasta.md');
     expect(md).toContain('# Pasta');
   });
+
+  it('creates missing parent folders via MKCOL when putJsonFile receives 409 Conflict', async () => {
+    const calls: string[] = [];
+    const createdDirs = new Set<string>();
+    const files = new Map<string, string>();
+
+    const customFetch = async (url: string, init?: { method?: string; body?: string }) => {
+      const method = init?.method ?? 'GET';
+      const path = new URL(url).pathname;
+      calls.push(`${method} ${path}`);
+
+      if (method === 'MKCOL') {
+        const clean = path.replace(/\/+$/, '');
+        if (createdDirs.has(clean)) {
+          return { ok: false, status: 405, headers: { get: () => null }, text: async () => '' };
+        }
+        createdDirs.add(clean);
+        return { ok: true, status: 201, headers: { get: () => null }, text: async () => '' };
+      }
+
+      if (method === 'PUT') {
+        const parent = path.slice(0, path.lastIndexOf('/'));
+        if (!createdDirs.has(parent)) {
+          return { ok: false, status: 409, headers: { get: () => null }, text: async () => 'Conflict' };
+        }
+        files.set(path, init?.body ?? '');
+        return { ok: true, status: 201, headers: { get: () => null }, text: async () => '' };
+      }
+
+      return { ok: false, status: 404, headers: { get: () => null }, text: async () => 'Not found' };
+    };
+
+    const webdav = createWebDavClient(credentials, { fetch: customFetch });
+    await webdav.putJsonFile(
+      'Notes/Tasker/tasker-config.json',
+      { categories: ['Produce', 'Dairy'] },
+      { createParents: true },
+    );
+
+    expect(calls).toEqual([
+      'PUT /remote.php/dav/files/alice/Notes/Tasker/tasker-config.json',
+      'MKCOL /remote.php/dav/files/alice/Notes/',
+      'MKCOL /remote.php/dav/files/alice/Notes/Tasker/',
+      'PUT /remote.php/dav/files/alice/Notes/Tasker/tasker-config.json',
+    ]);
+    expect(
+      JSON.parse(files.get('/remote.php/dav/files/alice/Notes/Tasker/tasker-config.json')!),
+    ).toEqual({ categories: ['Produce', 'Dairy'] });
+  });
 });

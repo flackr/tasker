@@ -261,7 +261,7 @@ export class MockCalDavBackend {
 
     const corsHeaders: Record<string, string> = {
       'Access-Control-Allow-Origin': this.allowedOrigin ?? headers.origin ?? '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PROPFIND, REPORT, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PROPFIND, REPORT, MKCOL, OPTIONS',
       'Access-Control-Allow-Headers': 'Authorization, Content-Type, Depth, Prefer, If-Match, If-None-Match',
       'Access-Control-Expose-Headers': 'ETag, DAV',
     };
@@ -531,6 +531,10 @@ export class MockCalDavBackend {
         },
         body: file.content,
       };
+    }
+
+    if (method === 'MKCOL') {
+      return { status: 201, headers: corsHeaders, body: '' };
     }
 
     if (method === 'PUT') {

@@ -85,12 +85,50 @@ export class WebDavClient {
     return JSON.parse(text) as T;
   }
 
-  async putJsonFile(relativePath: string, data: unknown): Promise<void> {
-    const response = await this.fetchImpl(this.fileUrl(relativePath), {
+  async createFolder(folderPath: string): Promise<void> {
+    const clean = folderPath.replace(/^\/+|\/+$/g, '');
+    if (!clean) return;
+    const response = await this.fetchImpl(this.fileUrl(`${clean}/`), {
+      method: 'MKCOL',
+      headers: this.authHeaders(),
+    });
+    // 201 Created, 2xx OK, or 405 Method Not Allowed (folder already exists per RFC 4918)
+    if (response.ok || response.status === 405) {
+      return;
+    }
+    throwForHttpStatus(response.status, `createFolder(${folderPath})`);
+  }
+
+  async ensureParentFolders(relativePath: string): Promise<void> {
+    const clean = relativePath.replace(/^\/+/, '');
+    const segments = clean.split('/').filter((s) => s.length > 0);
+    if (segments.length <= 1) return;
+    let current = '';
+    for (let i = 0; i < segments.length - 1; i++) {
+      current = current ? `${current}/${segments[i]}` : segments[i];
+      await this.createFolder(current);
+    }
+  }
+
+  async putJsonFile(
+    relativePath: string,
+    data: unknown,
+    options?: { createParents?: boolean },
+  ): Promise<void> {
+    const body = JSON.stringify(data, null, 2);
+    let response = await this.fetchImpl(this.fileUrl(relativePath), {
       method: 'PUT',
       headers: this.authHeaders({ 'Content-Type': 'application/json; charset=utf-8' }),
-      body: JSON.stringify(data, null, 2),
+      body,
     });
+    if (response.status === 409 && options?.createParents) {
+      await this.ensureParentFolders(relativePath);
+      response = await this.fetchImpl(this.fileUrl(relativePath), {
+        method: 'PUT',
+        headers: this.authHeaders({ 'Content-Type': 'application/json; charset=utf-8' }),
+        body,
+      });
+    }
     if (!response.ok) {
       throwForHttpStatus(response.status, `putJsonFile(${relativePath})`);
     }
