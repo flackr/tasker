@@ -136,7 +136,7 @@ This document tracks all planned work towards building the complete tasker ecosy
   - [x] Render tasks sorted by category with category labels on Versa 2 (`300×300` screen)
   - [x] Persist list catalog (`tasker-lists.json`) and per-list contents + pending local toggles (`tasker-list-<id>.json`) via Fitbit File Storage (`fs`) so restarts immediately render the cached list while syncing in the background
   - [x] Timestamp-aware watch reconciliation (`reconcileWatchTasks`): prefer newer/equal server edits over older unsynced watch toggles, while syncing strictly newer unsynced watch toggles back to CalDAV
-  - [x] Syncing / offline / pending / error status indicator and manual Sync button
+  - [x] Instant O(1) checkbox toggle on watch (cached DOM handles, debounced `fs` write + `unload` flush, deferred sync to CalDAV on next sync) and clipped list viewports painted beneath the header
 
 ### Fitbit Unit, Protocol & Rendered E2E Testing (No Device Required)
 - [x] Write Vitest unit & integration tests (`fitbit/test/fitbit-sync.test.ts`) for Companion sync handler and Watch state/cache/protocol logic against `@tasker/mock-caldav`

@@ -23,9 +23,9 @@ As a Versa 2 user, I want to pick between my CalDAV task lists, check off items 
 
 ---
 
-## Tapping Apples checks it off on the watch and persists COMPLETED losslessly to CalDAV
+## Tapping Apples toggles instantly on the watch and persists COMPLETED losslessly to CalDAV on the next sync
 
-![Tapping Apples checks it off on the watch and persists COMPLETED losslessly to CalDAV](./screenshots/002-toggled-online.png)
+![Tapping Apples toggles instantly on the watch and persists COMPLETED losslessly to CalDAV on the next sync](./screenshots/002-toggled-online.png)
 
 **Verifications:**
 - [x] Apples tile is checked and status updates to 2 left

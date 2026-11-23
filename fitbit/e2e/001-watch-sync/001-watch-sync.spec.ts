@@ -119,12 +119,17 @@ test('FIT-001: Versa 2 multi-list selection, category-sorted tasks, offline fs r
       ],
     });
 
-    // Tap Apples online
+    // Tap Apples → instant local toggle (no BLE traffic until next sync), then tap Sync
     await page.getByTestId('watch-item-0').click();
+    await expect(page.getByTestId('watch-item-0')).toHaveAttribute('data-checked', '1');
+    await expect(page.getByTestId('watch-status')).toHaveText('1 unsynced');
+    expect(server.backend.getTasks('shopping').find((t) => t.uid === 'apples')?.ics).toContain('STATUS:NEEDS-ACTION');
+
+    await page.getByTestId('watch-sync-btn').click();
     await expect(page.getByTestId('watch-status')).toHaveText('2 left');
 
     await tester.step('toggled-online', {
-      description: 'Tapping Apples checks it off on the watch and persists COMPLETED losslessly to CalDAV',
+      description: 'Tapping Apples toggles instantly on the watch and persists COMPLETED losslessly to CalDAV on the next sync',
       verifications: [
         {
           spec: 'Apples tile is checked and status updates to 2 left',

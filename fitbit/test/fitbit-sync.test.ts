@@ -372,12 +372,95 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
     expect(renderedSummaries).toContain('Bread');
   });
 
-  it('defines explicit 58px tile heights in Fitbit GUI and CSS so Versa 2 renders multiple list items at once', () => {
+  it('defines explicit 58px tile heights, clips lists below the header, and paints header on top in Fitbit GUI', () => {
     const gui = fsNode.readFileSync(path.resolve(__dirname, '../resources/index.gui'), 'utf8');
     const css = fsNode.readFileSync(path.resolve(__dirname, '../resources/styles.css'), 'utf8');
     expect(css).toMatch(/\.tile-list-item\s*\{[^}]*height:\s*58;/);
     expect(gui).toMatch(/<symbol\s+id="list-item"\s+height="58">/);
     expect(gui).toMatch(/<use\s+id="list-tile-list"\s+href="#tile-list-item"\s+class="tile-list-item"\s+height="58">/);
+    // Lists are clipped inside nested <svg y="40" height="260"> AND header is declared after them
+    expect(gui).toMatch(/<svg\s+id="lists-view"\s+x="0"\s+y="40"\s+width="100%"\s+height="260"/);
+    expect(gui).toMatch(/<svg\s+id="tasks-view"\s+x="0"\s+y="40"\s+width="100%"\s+height="260"/);
+    expect(gui.indexOf('id="header-bg"')).toBeGreaterThan(gui.indexOf('id="tasks-view"'));
+  });
+
+  it('toggles tasks instantaneously without sending Bluetooth traffic until next sync and debounces fs writes', async () => {
+    const backend = createMockCalDav({
+      auth: { username: 'alice', password: 'secret' },
+      tasks: [
+        { uid: 'milk', calendarSlug: 'shopping', etag: 'e1', ics: makeIcs('milk', 'Milk', 'Dairy') },
+        { uid: 'apples', calendarSlug: 'shopping', etag: 'e2', ics: makeIcs('apples', 'Apples', 'Produce') },
+      ],
+    });
+    const settingsStorage = createMemorySettings({
+      app_server: JSON.stringify({ name: 'https://cloud.example.com' }),
+      app_username: JSON.stringify({ name: 'alice' }),
+      app_password: JSON.stringify({ name: 'secret' }),
+    });
+    const fs = createMemoryFs();
+    let writeCount = 0;
+    const trackedFs = {
+      readFileSync: (name: string) => fs.readFileSync(name),
+      writeFileSync: (name: string, data: unknown) => {
+        writeCount += 1;
+        fs.writeFileSync(name, data);
+      },
+    };
+    const ui = createMockWatchDocument();
+    const sentMessages: { type: string }[] = [];
+    let watchApp: ReturnType<typeof createWatchApp>;
+    const companion = createCompanionSync({
+      settingsStorage,
+      fetch: backend.createFetch(),
+      send: (msg: unknown) => watchApp.onMessage(msg),
+    });
+    let clockMs = Date.parse('2026-05-01T10:05:00.000Z');
+    watchApp = createWatchApp({
+      document: ui.doc,
+      fs: trackedFs,
+      now: () => clockMs,
+      persistDelayMs: 200,
+      send: (msg: { type: string }) => {
+        sentMessages.push(msg);
+        void companion.onMessage(msg);
+      },
+    });
+
+    watchApp.start();
+    await flushPromises();
+    expect(ui.status.text).toBe('2 left');
+
+    // Reset counters before rapid user taps
+    sentMessages.length = 0;
+    writeCount = 0;
+
+    // Rapidly check and uncheck Apples, then check Milk — zero BLE sends, zero blocking fs writes!
+    ui.taskTiles[0].checkbox.onclick!();
+    clockMs += 1000;
+    ui.taskTiles[0].checkbox.onclick!();
+    clockMs += 1000;
+    ui.taskTiles[1].checkbox.onclick!();
+
+    expect(sentMessages).toEqual([]);
+    expect(writeCount).toBe(0);
+    expect(ui.taskTiles[0].checkbox.value).toBe(0);
+    expect(ui.taskTiles[1].checkbox.value).toBe(1);
+    expect(ui.status.text).toBe('2 unsynced');
+    expect(watchApp.getState().pending).toEqual([
+      { uid: 'apples', completed: false, updatedAt: Date.parse('2026-05-01T10:05:01.000Z') },
+      { uid: 'milk', completed: true, updatedAt: Date.parse('2026-05-01T10:05:02.000Z') },
+    ]);
+
+    // Flushing persistence writes once (e.g. on unload or next sync)
+    watchApp.flushPersistence();
+    expect(writeCount).toBe(1);
+
+    // Next sync reconciles and pushes the recorded latest toggles to Nextcloud
+    watchApp.requestSync();
+    await flushPromises();
+    expect(ui.status.text).toBe('1 left');
+    expect(parseVTodo(backend.getTasks('shopping').find((t) => t.uid === 'milk')!.ics).status).toBe('COMPLETED');
+    expect(parseVTodo(backend.getTasks('shopping').find((t) => t.uid === 'apples')!.ics).status).toBe('NEEDS-ACTION');
   });
 
   it('sorts each task list using its own per-calendar categoriesByCalendar order', async () => {
@@ -665,14 +748,38 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
       }),
     });
 
-    // Watch taps Milk at 10:05 → Companion hits 412, refreshes, sees 10:15 > 10:05 → server wins!
+    // Watch taps Milk at 10:05 (instant local toggle, no BLE traffic yet), then syncs →
+    // reconciliation sees server 10:15 > watch 10:05 so server wins!
     ui.taskTiles[0].checkbox.onclick!();
+    expect(ui.taskTiles[0].checkbox.value).toBe(1);
+    expect(ui.status.text).toBe('1 unsynced');
+    watchApp.requestSync();
     await flushPromises();
 
     expect(ui.taskTiles[0].checkbox.value).toBe(0);
     expect(ui.status.text).toBe('1 left');
     const serverMilk = parseVTodo(backend.getTasks('shopping')[0].ics);
     expect(serverMilk.status).toBe('NEEDS-ACTION');
+
+    // Also verify Companion's direct 412 conflict path when server changes mid-flight during UPDATE_TASK
+    const serverMilk2 = backend.getTasks('shopping')[0];
+    backend.setTask({
+      ...serverMilk2,
+      etag: 'e3-even-newer',
+      ics: makeIcs('milk', 'Milk', 'Dairy', {
+        status: 'NEEDS-ACTION',
+        lastModified: '20260501T102000Z',
+      }),
+    });
+    await companion.onMessage({
+      type: 'UPDATE_TASK',
+      uid: 'milk',
+      completed: true,
+      calendarHref: '/remote.php/dav/calendars/alice/shopping/',
+      updatedAt: Date.parse('2026-05-01T10:18:00.000Z'),
+    });
+    await flushPromises();
+    expect(parseVTodo(backend.getTasks('shopping')[0].ics).status).toBe('NEEDS-ACTION');
   });
 
   it('surfaces clear error message when credentials are missing', async () => {

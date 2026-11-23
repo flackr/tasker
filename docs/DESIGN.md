@@ -497,10 +497,9 @@ Companion socket open
   → Watch: merge cache + payload → render + save to File Storage
 
 User checks off item
-  → Watch sends UPDATE_TASK
-  → Companion: PUT to CalDAV
-  → on success: sends UPDATE_ACK → Watch updates cache
-  → on failure: sends ERROR → Watch shows error badge, reverts optimistic update
+  → Watch updates single tile + status immediately (O(1), zero BLE traffic)
+  → Records { uid, completed, updatedAt } locally (debounced fs write + flush on unload)
+  → Pushed to CalDAV on the next sync (Sync tap, reconnect, or relaunch) after timestamp reconciliation
 ```
 
 ---

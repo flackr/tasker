@@ -158,6 +158,7 @@ export function createWatchApp(options) {
   var send = options.send;
   var isConnectedFn = options.isConnected || function () { return true; };
   var nowFn = options.now || function () { return Date.now(); };
+  var persistDelayMs = typeof options.persistDelayMs === "number" ? options.persistDelayMs : 0;
 
   var statusEl = doc.getElementById("status");
   var syncBtn = doc.getElementById("sync-btn");
@@ -166,6 +167,12 @@ export function createWatchApp(options) {
   var listsViewEl = doc.getElementById("lists-view");
   var tasksViewEl = doc.getElementById("tasks-view");
   var reassembler = createChunkReassembler();
+
+  var listTileRefs = [];
+  var taskTileRefs = [];
+  var tilesInitialized = false;
+  var persistTimer = null;
+  var dirtyActiveList = false;
 
   var state = {
     view: "lists", // "tasks" (top-level) | "lists" (sub-view)
@@ -177,8 +184,58 @@ export function createWatchApp(options) {
     activeCategoryOrder: undefined,
     lastSyncedAt: undefined,
     syncing: false,
+    syncingPending: false,
     error: "",
   };
+
+  function initTileRefs() {
+    if (tilesInitialized) return;
+    tilesInitialized = true;
+
+    for (var i = 0; ; i++) {
+      var listTile = doc.getElementById("list-item-" + i);
+      if (!listTile) break;
+      var listTileList = listTile.getElementById("list-tile-list");
+      var touchEl = listTile.getElementById("list-touch") || listTileList;
+      listTileRefs.push({
+        tileList: listTileList,
+        titleEl: listTile.getElementById("list-title"),
+        subEl: listTile.getElementById("list-subtitle"),
+        touchEl: touchEl,
+        visible: null,
+        title: null,
+        subtitle: null,
+      });
+      (function (index) {
+        touchEl.onclick = function () {
+          if (state.calendars[index]) {
+            selectList(state.calendars[index].href);
+          }
+        };
+      })(i);
+    }
+
+    for (var j = 0; ; j++) {
+      var taskTile = doc.getElementById("item-" + j);
+      if (!taskTile) break;
+      var taskTileList = taskTile.getElementById("task-tile-list");
+      var checkbox = taskTile.getElementById("task-checkbox");
+      taskTileRefs.push({
+        tileList: taskTileList,
+        checkbox: checkbox,
+        categoryEl: taskTile.getElementById("item-category"),
+        visible: null,
+        summary: null,
+        completed: null,
+        category: null,
+      });
+      (function (index) {
+        checkbox.onclick = function () {
+          toggleTask(index);
+        };
+      })(j);
+    }
+  }
 
   function getEffectiveCategoryOrder() {
     return Array.isArray(state.activeCategoryOrder)
@@ -240,7 +297,9 @@ export function createWatchApp(options) {
       return "Syncing...";
     }
     if (state.pending.length > 0) {
-      return "Saving (" + state.pending.length + ")...";
+      return state.syncingPending
+        ? "Saving (" + state.pending.length + ")..."
+        : state.pending.length + " unsynced";
     }
     if (state.items.length === 0) {
       return "No items";
@@ -253,56 +312,62 @@ export function createWatchApp(options) {
   }
 
   function renderListsView() {
-    for (var i = 0;; i++) {
-      var tile = doc.getElementById("list-item-" + i);
-      if (!tile) break;
-      var tileList = tile.getElementById("list-tile-list");
+    initTileRefs();
+    for (var i = 0; i < listTileRefs.length; i++) {
+      var ref = listTileRefs[i];
       if (state.calendars.length <= i) {
-        tileList.style.display = "none";
+        if (ref.visible !== false) {
+          ref.tileList.style.display = "none";
+          ref.visible = false;
+        }
         continue;
       }
-      tileList.style.display = "inline";
+      if (ref.visible !== true) {
+        ref.tileList.style.display = "inline";
+        ref.visible = true;
+      }
       var cal = state.calendars[i];
-      var titleEl = tile.getElementById("list-title");
-      var subEl = tile.getElementById("list-subtitle");
-      var touchEl = tile.getElementById("list-touch") || tileList;
-
-      if (titleEl) titleEl.text = cal.displayName;
-      if (subEl) subEl.text = computeListSubtitle(cal.href);
-
-      (function (href) {
-        touchEl.onclick = function () {
-          selectList(href);
-        };
-      })(cal.href);
+      var sub = computeListSubtitle(cal.href);
+      if (ref.titleEl && ref.title !== cal.displayName) {
+        ref.titleEl.text = cal.displayName;
+        ref.title = cal.displayName;
+      }
+      if (ref.subEl && ref.subtitle !== sub) {
+        ref.subEl.text = sub;
+        ref.subtitle = sub;
+      }
     }
   }
 
   function renderTasksView() {
-    for (var i = 0;; i++) {
-      var tile = doc.getElementById("item-" + i);
-      if (!tile) break;
-      var tileList = tile.getElementById("task-tile-list");
+    initTileRefs();
+    for (var i = 0; i < taskTileRefs.length; i++) {
+      var ref = taskTileRefs[i];
       if (state.items.length <= i) {
-        tileList.style.display = "none";
+        if (ref.visible !== false) {
+          ref.tileList.style.display = "none";
+          ref.visible = false;
+        }
         continue;
       }
-      tileList.style.display = "inline";
-      var checkbox = tile.getElementById("task-checkbox");
-      var categoryEl = tile.getElementById("item-category");
-      var item = state.items[i];
-
-      checkbox.text = item.summary;
-      checkbox.value = item.completed ? 1 : 0;
-      if (categoryEl) {
-        categoryEl.text = getCategoryLabel(item);
+      if (ref.visible !== true) {
+        ref.tileList.style.display = "inline";
+        ref.visible = true;
       }
-
-      (function (index) {
-        checkbox.onclick = function () {
-          toggleTask(index);
-        };
-      })(i);
+      var item = state.items[i];
+      var cat = getCategoryLabel(item);
+      if (ref.summary !== item.summary) {
+        ref.checkbox.text = item.summary;
+        ref.summary = item.summary;
+      }
+      if (ref.completed !== item.completed) {
+        ref.checkbox.value = item.completed ? 1 : 0;
+        ref.completed = item.completed;
+      }
+      if (ref.categoryEl && ref.category !== cat) {
+        ref.categoryEl.text = cat;
+        ref.category = cat;
+      }
     }
   }
 
@@ -350,6 +415,32 @@ export function createWatchApp(options) {
     );
   }
 
+  function flushPersistence() {
+    if (persistTimer !== null) {
+      clearTimeout(persistTimer);
+      persistTimer = null;
+    }
+    if (dirtyActiveList) {
+      dirtyActiveList = false;
+      persistActiveList();
+    }
+  }
+
+  function schedulePersistActiveList() {
+    dirtyActiveList = true;
+    if (persistDelayMs > 0 && typeof setTimeout === "function") {
+      if (persistTimer !== null) {
+        clearTimeout(persistTimer);
+      }
+      persistTimer = setTimeout(function () {
+        persistTimer = null;
+        flushPersistence();
+      }, persistDelayMs);
+    } else {
+      flushPersistence();
+    }
+  }
+
   function sendPendingToggles(calendarHref, toggles) {
     if (!isConnectedFn()) return;
     for (var i = 0; i < toggles.length; i++) {
@@ -366,8 +457,10 @@ export function createWatchApp(options) {
 
   function selectList(calendarHref) {
     if (!calendarHref) return;
+    flushPersistence();
     state.activeCalendarHref = calendarHref;
     state.view = "tasks";
+    state.syncingPending = false;
     state.error = "";
 
     var stored = readListStore(fs, calendarHref);
@@ -399,6 +492,7 @@ export function createWatchApp(options) {
     if (state.view === "lists") {
       return;
     }
+    flushPersistence();
     state.view = "lists";
     state.error = "";
     if (isConnectedFn()) {
@@ -436,25 +530,30 @@ export function createWatchApp(options) {
     );
     state.items = updated.tasks;
     state.pending = updated.pending;
+    state.syncingPending = false;
     state.error = "";
-    persistActiveList();
-    render();
 
-    if (isConnectedFn()) {
-      send({
-        type: "UPDATE_TASK",
-        uid: target.uid,
-        completed: nextCompleted,
-        calendarHref: state.activeCalendarHref,
-        updatedAt: timestamp,
-      });
+    // Instant O(1) update of only the tapped tile and header status —
+    // no 50-tile loop and no blocking Bluetooth round-trip on tap.
+    // The recorded { uid, completed, updatedAt } entry is pushed on the next sync.
+    var ref = taskTileRefs[idx];
+    if (ref) {
+      ref.completed = nextCompleted;
+      ref.checkbox.value = nextCompleted ? 1 : 0;
     }
+    if (statusEl) {
+      statusEl.text = computeStatusText();
+    }
+
+    schedulePersistActiveList();
   }
 
   function requestSync() {
+    flushPersistence();
     state.error = "";
     if (!isConnectedFn()) {
       state.syncing = false;
+      state.syncingPending = false;
       render();
       return;
     }
@@ -541,6 +640,7 @@ export function createWatchApp(options) {
 
       if (isActive) {
         state.syncing = false;
+        state.syncingPending = reconciled.togglesToSync.length > 0 && isConnectedFn();
         state.error = "";
         state.items = sorted;
         state.pending = reconciled.pending;
@@ -566,6 +666,9 @@ export function createWatchApp(options) {
         var acked = acknowledgeWatchToggle(state.items, state.pending, data.uid, ackMeta);
         state.items = acked.tasks;
         state.pending = acked.pending;
+        if (state.pending.length === 0) {
+          state.syncingPending = false;
+        }
         state.error = "";
         persistActiveList();
         render();
@@ -593,6 +696,7 @@ export function createWatchApp(options) {
       }
     } else if (data.type === "ERROR") {
       state.syncing = false;
+      state.syncingPending = false;
       state.error = data.message || "Sync failed";
       render();
     }
@@ -603,11 +707,13 @@ export function createWatchApp(options) {
       requestSync();
     } else {
       state.syncing = false;
+      state.syncingPending = false;
       render();
     }
   }
 
   function start() {
+    initTileRefs();
     if (syncBtn) {
       syncBtn.onclick = function () {
         requestSync();
@@ -656,6 +762,7 @@ export function createWatchApp(options) {
     goBack: goBack,
     toggleTask: toggleTask,
     requestSync: requestSync,
+    flushPersistence: flushPersistence,
     onMessage: onMessage,
     onConnectionChange: onConnectionChange,
     getState: function () {

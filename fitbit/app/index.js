@@ -1,3 +1,4 @@
+import { me as appbit } from "appbit";
 import document from "document";
 import * as fs from "fs";
 import * as messaging from "messaging";
@@ -12,6 +13,12 @@ const app = createWatchApp({
   fs,
   send: (payload) => asap.send(payload, { timeout: 15000 }),
   isConnected: () => messaging.peerSocket.readyState === messaging.peerSocket.OPEN,
+  persistDelayMs: 350,
+});
+
+// Flush any debounced local fs writes before the app exits
+appbit.addEventListener("unload", () => {
+  app.flushPersistence();
 });
 
 // Intercept Versa 2 hardware back button only inside the Lists sub-view so
