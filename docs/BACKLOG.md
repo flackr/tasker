@@ -164,7 +164,7 @@ This document tracks all planned work towards building the complete tasker ecosy
 ## Milestone 7 — Polish & Release
 
 - [ ] Accessibility audit: ARIA labels, keyboard navigation, colour contrast
-- [ ] Dark mode support (`prefers-color-scheme`)
+- [x] Dark mode support (`color-scheme: dark light` + `prefers-color-scheme: dark` with high-contrast icons & Playwright visual tests)
 - [ ] Audit and tighten Content-Security-Policy headers in PWA
 - [ ] Lighthouse audit (≥ 90 across categories)
 - [ ] Write `CONTRIBUTING.md` and tag `v0.1.0` release
