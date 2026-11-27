@@ -214,16 +214,13 @@ function getCategoryLabel(task) {
 }
 
 /**
- * Builds the flat uniform-height (52px) virtual-tile row list for the Tasks VirtualTileList:
- * - Row 0: spacer-pool (52px; top 28px clears the sticky status bar, bottom 24px shows active list name)
- * - Row 1: actions-pool (52px; split Sync + Autohide/Show All buttons, scrolled past by default via value=2)
- * - Rows 2+: bottom-aligned category header tiles (52px; top 28px clears status bar on row 2 and adds
- *   section breathing room below) interleaved before each visible category group, followed by 52px task tiles.
+ * Builds the flat content row list (category headers + visible tasks) rendered
+ * beneath the fixed top spacer (index 0) and split Sync/Autohide actions row (index 1).
  */
 export function buildTaskRows(items, options) {
   var hideCompleted = Boolean(options && options.hideCompleted);
   var fallbackHeader = (options && options.fallbackHeader) || "Tasks";
-  var rows = [{ type: "spacer-pool" }, { type: "actions-pool" }];
+  var rows = [];
   if (!Array.isArray(items) || items.length === 0) {
     return rows;
   }
@@ -245,7 +242,7 @@ export function buildTaskRows(items, options) {
   }
 
   if (!hasAnyCategory) {
-    rows.push({ type: "category-pool", category: fallbackHeader });
+    rows.push({ kind: "category", category: fallbackHeader });
   }
 
   var lastCategory = null;
@@ -255,22 +252,11 @@ export function buildTaskRows(items, options) {
     if (hasAnyCategory) {
       var headerLabel = cat || "Uncategorized";
       if (headerLabel !== lastCategory) {
-        rows.push({ type: "category-pool", category: headerLabel });
+        rows.push({ kind: "category", category: headerLabel });
         lastCategory = headerLabel;
       }
     }
-    rows.push({ type: "item-pool", taskIndex: taskIndex });
-  }
-  return rows;
-}
-
-function buildListRows(calendars) {
-  var rows = [{ type: "lists-sync-pool" }];
-  if (!Array.isArray(calendars)) {
-    return rows;
-  }
-  for (var i = 0; i < calendars.length; i++) {
-    rows.push({ type: "list-pool", listIndex: i });
+    rows.push({ kind: "task", taskIndex: taskIndex });
   }
   return rows;
 }
@@ -278,18 +264,11 @@ function buildListRows(calendars) {
 /**
  * Creates the Fitbit Versa 2 Watch App controller (ES5-safe).
  *
- * Features:
- * - Native `#panoramaview` horizontal navigation: Page 0 = active task list,
- *   Page 1 = Lists picker (swipe from the right to switch lists, hardware Back
- *   from Page 1 returns to Page 0, hardware Back from Page 0 exits cleanly)
- * - Slim 28px status-only header bar
- * - Uniform-height (52px) Virtual `#tile-list` for Tasks (preventing Fitbit OS 4
- *   virtual scroll drift) with pull-down split Sync + Autohide/Show All buttons
- *   at row 1 (started scrolled past via `value = 2`), grouped category headers,
- *   and large 28px-font single-line task tiles
- * - Uniform-height (64px) Virtual `#tile-list` for Lists
- * - Local File Storage (`fs`, CBOR encoding) persistence for the list catalog +
- *   `hideCompleted` preference (`t-lists.cbor`) and per-list tasks (`t-<hash>.cbor`)
+ * Uses static `#tile-list` elements (avoiding Fitbit OS 4's `VirtualTileList`
+ * upward-scroll lockup bug) inside a native `#panoramaview` (Page 0 = Tasks,
+ * swipe from right for Page 1 = Lists), with cached DOM handles for instant O(1)
+ * checkbox toggles, pull-down split Sync + Autohide/Show All buttons, grouped
+ * category headers, large 28px task fonts, and CBOR File Storage (`fs`).
  */
 export function createWatchApp(options) {
   var doc = options.document;
@@ -306,9 +285,18 @@ export function createWatchApp(options) {
   var listsChecklistEl = doc.getElementById("lists-checklist");
   var reassembler = createChunkReassembler();
 
-  var taskRows = buildTaskRows([]);
-  var listRows = buildListRows([]);
-  var delegatesInitialized = false;
+  var activeListLabelEl = null;
+  var syncLabelEl = null;
+  var syncTouchEl = null;
+  var autohideLabelEl = null;
+  var autohideTouchEl = null;
+  var listsSyncLabelEl = null;
+  var listsSyncTouchEl = null;
+
+  var rowRefs = [];
+  var listTileRefs = [];
+  var contentRows = [];
+  var tilesInitialized = false;
   var persistTimer = null;
   var dirtyActiveList = false;
 
@@ -327,25 +315,12 @@ export function createWatchApp(options) {
     error: "",
   };
 
-  function applyTaskCompletedUI(tile, completed) {
-    var titleEl = tile.getElementById("task-title");
-    var checkboxCheck = tile.getElementById("checkbox-check");
-    if (checkboxCheck && checkboxCheck.style) {
-      checkboxCheck.style.display = completed ? "inline" : "none";
+  function applyTaskCompletedUI(ref, completed) {
+    if (ref.checkboxCheck && ref.checkboxCheck.style) {
+      ref.checkboxCheck.style.display = completed ? "inline" : "none";
     }
-    if (titleEl && titleEl.style) {
-      titleEl.style.fill = completed ? "#9ca3af" : "#ffffff";
-    }
-  }
-
-  function applyAutohideButtonUI(tile) {
-    var autoTouch = tile.getElementById("autohide-touch");
-    var autoLabel = tile.getElementById("autohide-label");
-    if (autoLabel) {
-      autoLabel.text = state.hideCompleted ? "Show All" : "Autohide";
-    }
-    if (autoTouch && autoTouch.style) {
-      autoTouch.style.fill = state.hideCompleted ? "#0f766e" : "#374151";
+    if (ref.titleEl && ref.titleEl.style) {
+      ref.titleEl.style.fill = completed ? "#9ca3af" : "#ffffff";
     }
   }
 
@@ -423,7 +398,7 @@ export function createWatchApp(options) {
     return remaining === 0 ? "All done!" : remaining + " left";
   }
 
-  function renderHeader() {
+  function renderHeaderAndActions() {
     if (statusEl) {
       statusEl.text = computeStatusText();
     }
@@ -433,6 +408,21 @@ export function createWatchApp(options) {
       } else {
         pageHintEl.text = state.activeCalendarHref ? "‹ Tasks" : "";
       }
+    }
+    if (activeListLabelEl) {
+      activeListLabelEl.text = getActiveCalendarName();
+    }
+    if (syncLabelEl) {
+      syncLabelEl.text = state.syncing ? "Syncing..." : "Sync";
+    }
+    if (autohideLabelEl) {
+      autohideLabelEl.text = state.hideCompleted ? "Show All" : "Autohide";
+    }
+    if (autohideTouchEl && autohideTouchEl.style) {
+      autohideTouchEl.style.fill = state.hideCompleted ? "#0f766e" : "#374151";
+    }
+    if (listsSyncLabelEl) {
+      listsSyncLabelEl.text = state.syncing ? "Syncing..." : "Sync Lists";
     }
   }
 
@@ -452,17 +442,17 @@ export function createWatchApp(options) {
       state.view = "lists";
       state.error = "";
       renderListsView(false);
-      renderHeader();
+      renderHeaderAndActions();
     } else if (page === 0 && state.view !== "tasks") {
       state.view = "tasks";
       state.error = "";
-      renderHeader();
+      renderHeaderAndActions();
     }
   }
 
-  function initDelegates() {
-    if (delegatesInitialized) return;
-    delegatesInitialized = true;
+  function initTileRefs() {
+    if (tilesInitialized) return;
+    tilesInitialized = true;
 
     if (containerEl) {
       if (typeof containerEl.addEventListener === "function") {
@@ -472,154 +462,205 @@ export function createWatchApp(options) {
       containerEl.onvaluechange = handlePanoramaChange;
     }
 
-    if (checklistEl) {
-      checklistEl.delegate = {
-        getTileInfo: function (index) {
-          var row = taskRows[index];
-          if (!row) return { type: "spacer-pool", index: index };
-          if (row.type === "category-pool") {
-            return { type: "category-pool", category: row.category, index: index };
-          }
-          if (row.type === "item-pool") {
-            return { type: "item-pool", taskIndex: row.taskIndex, index: index };
-          }
-          return { type: row.type, index: index };
-        },
-        configureTile: function (tile, info) {
-          if (info.type === "spacer-pool") {
-            var listLabel = tile.getElementById("active-list-label");
-            if (listLabel) {
-              listLabel.text = getActiveCalendarName();
-            }
-          } else if (info.type === "actions-pool") {
-            var syncLabel = tile.getElementById("sync-label");
-            if (syncLabel) {
-              syncLabel.text = state.syncing ? "Syncing..." : "Sync";
-            }
-            var syncTouch = tile.getElementById("sync-touch");
-            if (syncTouch) {
-              syncTouch.onclick = function () {
-                requestSync();
-              };
-            }
-            applyAutohideButtonUI(tile);
-            var autoTouch = tile.getElementById("autohide-touch");
-            if (autoTouch) {
-              autoTouch.onclick = function () {
-                toggleHideCompleted();
-              };
-            }
-          } else if (info.type === "category-pool") {
-            var catEl = tile.getElementById("category-title");
-            if (catEl) {
-              catEl.text = info.category || "";
-            }
-          } else if (info.type === "item-pool") {
-            var item = state.items[info.taskIndex];
-            if (!item) return;
-            var titleEl = tile.getElementById("task-title");
-            if (titleEl) {
-              titleEl.text = item.summary;
-            }
-            applyTaskCompletedUI(tile, item.completed);
-            tile.__taskIndex = info.taskIndex;
-            var touchEl = tile.getElementById("task-touch");
-            if (touchEl) {
-              touchEl.onclick = function () {
-                toggleTask(tile.__taskIndex, tile);
-              };
-            }
-          }
-        },
-      };
+    var topSpacerRow = doc.getElementById("top-spacer-row");
+    if (topSpacerRow) {
+      activeListLabelEl = topSpacerRow.getElementById("active-list-label");
     }
 
-    if (listsChecklistEl) {
-      listsChecklistEl.delegate = {
-        getTileInfo: function (index) {
-          var row = listRows[index];
-          if (!row) return { type: "lists-sync-pool", index: index };
-          if (row.type === "list-pool") {
-            return { type: "list-pool", listIndex: row.listIndex, index: index };
-          }
-          return { type: row.type, index: index };
-        },
-        configureTile: function (tile, info) {
-          if (info.type === "lists-sync-pool") {
-            var labelEl = tile.getElementById("lists-sync-label");
-            if (labelEl) {
-              labelEl.text = state.syncing ? "Syncing..." : "Sync Lists";
-            }
-            var syncTouch = tile.getElementById("lists-sync-touch");
-            if (syncTouch) {
-              syncTouch.onclick = function () {
-                requestSync();
-              };
-            }
-          } else if (info.type === "list-pool") {
-            var cal = state.calendars[info.listIndex];
-            if (!cal) return;
-            var titleEl = tile.getElementById("list-title");
-            var subEl = tile.getElementById("list-subtitle");
-            if (titleEl) {
-              titleEl.text = cal.displayName;
-            }
-            if (subEl) {
-              subEl.text = computeListSubtitle(cal.href);
-            }
-            tile.__listHref = cal.href;
-            var touchEl = tile.getElementById("list-touch");
-            if (touchEl) {
-              touchEl.onclick = function () {
-                if (tile.__listHref) {
-                  selectList(tile.__listHref);
-                }
-              };
-            }
-          }
-        },
+    var actionsRow = doc.getElementById("actions-row");
+    if (actionsRow) {
+      syncLabelEl = actionsRow.getElementById("sync-label");
+      syncTouchEl = actionsRow.getElementById("sync-touch");
+      autohideLabelEl = actionsRow.getElementById("autohide-label");
+      autohideTouchEl = actionsRow.getElementById("autohide-touch");
+      if (syncTouchEl) {
+        syncTouchEl.onclick = function () {
+          requestSync();
+        };
+      }
+      if (autohideTouchEl) {
+        autohideTouchEl.onclick = function () {
+          toggleHideCompleted();
+        };
+      }
+    }
+
+    var listsSyncRow = doc.getElementById("lists-sync-row");
+    if (listsSyncRow) {
+      listsSyncLabelEl = listsSyncRow.getElementById("lists-sync-label");
+      listsSyncTouchEl = listsSyncRow.getElementById("lists-sync-touch");
+      if (listsSyncTouchEl) {
+        listsSyncTouchEl.onclick = function () {
+          requestSync();
+        };
+      }
+    }
+
+    for (var i = 0; ; i++) {
+      var rowEl = doc.getElementById("row-" + i);
+      if (!rowEl) break;
+      var ref = {
+        tileList: rowEl.getElementById("row-tile-list"),
+        categoryGroup: rowEl.getElementById("category-group"),
+        categoryTitleEl: rowEl.getElementById("category-title"),
+        taskGroup: rowEl.getElementById("task-group"),
+        taskTouchEl: rowEl.getElementById("task-touch"),
+        titleEl: rowEl.getElementById("task-title"),
+        checkboxCheck: rowEl.getElementById("checkbox-check"),
+        visible: null,
+        kind: null,
+        category: null,
+        taskIndex: -1,
+        summary: null,
+        completed: null,
       };
+      rowRefs.push(ref);
+      if (ref.taskTouchEl) {
+        (function (rowRef) {
+          rowRef.taskTouchEl.onclick = function () {
+            if (rowRef.kind === "task" && rowRef.taskIndex >= 0) {
+              toggleTask(rowRef.taskIndex, rowRef);
+            }
+          };
+        })(ref);
+      }
+    }
+
+    for (var j = 0; ; j++) {
+      var listTile = doc.getElementById("list-item-" + j);
+      if (!listTile) break;
+      var listTileList = listTile.getElementById("list-tile-list");
+      var listTouch = listTile.getElementById("list-touch") || listTileList;
+      listTileRefs.push({
+        tileList: listTileList,
+        titleEl: listTile.getElementById("list-title"),
+        subEl: listTile.getElementById("list-subtitle"),
+        touchEl: listTouch,
+        visible: null,
+        title: null,
+        subtitle: null,
+      });
+      if (listTouch) {
+        (function (index) {
+          listTouch.onclick = function () {
+            if (state.calendars[index]) {
+              selectList(state.calendars[index].href);
+            }
+          };
+        })(j);
+      }
     }
   }
 
-  function hasVisibleTasks() {
-    return taskRows.length > 2;
+  function totalTasksTileCount() {
+    return 2 + Math.min(contentRows.length, rowRefs.length);
   }
 
   function defaultTasksScrollValue() {
     // Only start scrolled past rows 0-1 (104px) onto row 2 when there are enough
     // rows (>= 8 * 52px = 416px) for row 2 to reach the top of the 300px screen
     // cleanly without half-clipping row 0 under the 28px status bar.
-    return taskRows.length >= 8 ? 2 : 0;
+    return totalTasksTileCount() >= 8 ? 2 : 0;
   }
 
   function renderTasksView(resetScroll) {
-    initDelegates();
-    taskRows = buildTaskRows(state.items, {
+    initTileRefs();
+    contentRows = buildTaskRows(state.items, {
       hideCompleted: state.hideCompleted,
       fallbackHeader: getActiveCalendarName(),
     });
+
+    for (var i = 0; i < rowRefs.length; i++) {
+      var ref = rowRefs[i];
+      if (i >= contentRows.length) {
+        if (ref.visible !== false) {
+          if (ref.tileList && ref.tileList.style) ref.tileList.style.display = "none";
+          if (ref.categoryGroup && ref.categoryGroup.style) ref.categoryGroup.style.display = "none";
+          if (ref.taskGroup && ref.taskGroup.style) ref.taskGroup.style.display = "none";
+          ref.visible = false;
+          ref.kind = null;
+          ref.taskIndex = -1;
+        }
+        continue;
+      }
+
+      var row = contentRows[i];
+      if (ref.visible !== true) {
+        if (ref.tileList && ref.tileList.style) ref.tileList.style.display = "inline";
+        ref.visible = true;
+      }
+
+      if (row.kind === "category") {
+        if (ref.kind !== "category") {
+          if (ref.categoryGroup && ref.categoryGroup.style) ref.categoryGroup.style.display = "inline";
+          if (ref.taskGroup && ref.taskGroup.style) ref.taskGroup.style.display = "none";
+          ref.kind = "category";
+          ref.taskIndex = -1;
+          ref.summary = null;
+          ref.completed = null;
+        }
+        if (ref.categoryTitleEl && ref.category !== row.category) {
+          ref.categoryTitleEl.text = row.category;
+          ref.category = row.category;
+        }
+      } else {
+        var item = state.items[row.taskIndex];
+        if (!item) continue;
+        if (ref.kind !== "task") {
+          if (ref.categoryGroup && ref.categoryGroup.style) ref.categoryGroup.style.display = "none";
+          if (ref.taskGroup && ref.taskGroup.style) ref.taskGroup.style.display = "inline";
+          ref.kind = "task";
+          ref.category = null;
+        }
+        ref.taskIndex = row.taskIndex;
+        if (ref.titleEl && ref.summary !== item.summary) {
+          ref.titleEl.text = item.summary;
+          ref.summary = item.summary;
+        }
+        if (ref.completed !== item.completed) {
+          applyTaskCompletedUI(ref, item.completed);
+          ref.completed = item.completed;
+        }
+      }
+    }
+
     if (checklistEl) {
-      var prevValue = typeof checklistEl.value === "number" ? checklistEl.value : 0;
-      checklistEl.length = taskRows.length;
       if (resetScroll) {
         checklistEl.value = defaultTasksScrollValue();
-      } else if (!hasVisibleTasks()) {
+      } else if (contentRows.length === 0) {
         checklistEl.value = 0;
-      } else if (prevValue >= taskRows.length) {
-        checklistEl.value = Math.max(0, taskRows.length - 1);
       }
     }
   }
 
   function renderListsView(resetScroll) {
-    initDelegates();
-    listRows = buildListRows(state.calendars);
-    if (listsChecklistEl) {
-      listsChecklistEl.length = listRows.length;
-      if (resetScroll) {
-        listsChecklistEl.value = 0;
+    initTileRefs();
+    for (var i = 0; i < listTileRefs.length; i++) {
+      var ref = listTileRefs[i];
+      if (state.calendars.length <= i) {
+        if (ref.visible !== false) {
+          if (ref.tileList && ref.tileList.style) ref.tileList.style.display = "none";
+          ref.visible = false;
+        }
+        continue;
       }
+      if (ref.visible !== true) {
+        if (ref.tileList && ref.tileList.style) ref.tileList.style.display = "inline";
+        ref.visible = true;
+      }
+      var cal = state.calendars[i];
+      var sub = computeListSubtitle(cal.href);
+      if (ref.titleEl && ref.title !== cal.displayName) {
+        ref.titleEl.text = cal.displayName;
+        ref.title = cal.displayName;
+      }
+      if (ref.subEl && ref.subtitle !== sub) {
+        ref.subEl.text = sub;
+        ref.subtitle = sub;
+      }
+    }
+    if (listsChecklistEl && resetScroll) {
+      listsChecklistEl.value = 0;
     }
   }
 
@@ -627,9 +668,9 @@ export function createWatchApp(options) {
     var resetTasksScroll = Boolean(options && options.resetTasksScroll);
     var resetListsScroll = Boolean(options && options.resetListsScroll);
     syncPanoramaPage();
-    renderHeader();
     renderTasksView(resetTasksScroll);
     renderListsView(resetListsScroll);
+    renderHeaderAndActions();
   }
 
   function persistIndex() {
@@ -746,7 +787,7 @@ export function createWatchApp(options) {
       state.syncing = false;
       state.error = "";
       syncPanoramaPage();
-      renderHeader();
+      renderHeaderAndActions();
       return true;
     }
     return false;
@@ -755,11 +796,11 @@ export function createWatchApp(options) {
   function toggleHideCompleted() {
     state.hideCompleted = !state.hideCompleted;
     persistIndex();
-    renderHeader();
     renderTasksView(true);
+    renderHeaderAndActions();
   }
 
-  function toggleTask(idx, tileEl) {
+  function toggleTask(idx, rowRef) {
     if (idx < 0 || idx >= state.items.length) return;
     var target = state.items[idx];
     var nextCompleted = !target.completed;
@@ -779,14 +820,15 @@ export function createWatchApp(options) {
     if (state.hideCompleted && nextCompleted) {
       // Autohide active: remove the newly checked item (and empty category header) immediately
       renderTasksView(false);
-    } else if (tileEl) {
+    } else if (rowRef) {
       // Instant O(1) update of only the tapped tile and status bar —
-      // no VirtualTileList length reset, no scroll jump, and no blocking BLE round-trip.
-      applyTaskCompletedUI(tileEl, nextCompleted);
+      // no list rebuild, no scroll jump, and no blocking BLE round-trip.
+      rowRef.completed = nextCompleted;
+      applyTaskCompletedUI(rowRef, nextCompleted);
     } else {
       renderTasksView(false);
     }
-    renderHeader();
+    renderHeaderAndActions();
 
     schedulePersistActiveList();
   }
@@ -798,14 +840,14 @@ export function createWatchApp(options) {
       state.syncing = false;
       state.syncingPending = false;
       render({
-        resetTasksScroll: hasVisibleTasks(),
+        resetTasksScroll: contentRows.length > 0,
         resetListsScroll: true,
       });
       return;
     }
 
     state.syncing = true;
-    renderHeader();
+    renderHeaderAndActions();
 
     var onTasksPage = containerEl ? containerEl.value === 0 : state.view === "tasks";
     if (onTasksPage && state.activeCalendarHref) {
@@ -941,7 +983,7 @@ export function createWatchApp(options) {
       state.syncing = false;
       state.syncingPending = false;
       state.error = data.message || "Sync failed";
-      renderHeader();
+      renderHeaderAndActions();
     }
   }
 
@@ -951,12 +993,12 @@ export function createWatchApp(options) {
     } else {
       state.syncing = false;
       state.syncingPending = false;
-      renderHeader();
+      renderHeaderAndActions();
     }
   }
 
   function start() {
-    initDelegates();
+    initTileRefs();
 
     // Immediately restore cached list catalog, hideCompleted preference, and last-opened list
     var index = readListsIndex(fs);
@@ -979,7 +1021,7 @@ export function createWatchApp(options) {
       }
     }
 
-    // Render cached UI immediately (scrolled past rows 0-1 onto row 2), then sync in background
+    // Render cached UI immediately, then sync in background
     render({ resetTasksScroll: true, resetListsScroll: true });
     requestSync();
   }
@@ -1006,7 +1048,7 @@ export function createWatchApp(options) {
         items: state.items.slice(),
         pending: state.pending.slice(),
         categoryOrder: getEffectiveCategoryOrder().slice(),
-        taskRows: taskRows.slice(),
+        taskRows: contentRows.slice(),
         status: computeStatusText(),
       };
     },

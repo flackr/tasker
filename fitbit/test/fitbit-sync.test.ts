@@ -63,275 +63,38 @@ function createMemoryFs() {
   };
 }
 
-interface MockSpacerRow {
-  kind: 'spacer';
-  listName: string;
-}
-
-interface MockActionsRow {
-  kind: 'actions';
-  syncLabel: string;
-  syncOnclick: (() => void) | null;
-  autohideLabel: string;
-  autohideFill: string;
-  autohideOnclick: (() => void) | null;
-}
-
-interface MockListsSyncRow {
-  kind: 'lists-sync';
-  label: string;
-  onclick: (() => void) | null;
-}
-
-interface MockCategoryRow {
-  kind: 'category';
-  title: string;
-}
-
-interface MockTaskRow {
-  kind: 'task';
-  taskIndex: number;
-  title: string;
-  titleFill: string;
+interface MockStaticRowSlot {
+  display: string;
+  categoryDisplay: string;
+  categoryTitle: string;
+  taskDisplay: string;
+  taskTitle: string;
+  taskTitleFill: string;
   checked: boolean;
   onclick: (() => void) | null;
 }
 
-interface MockListRow {
-  kind: 'list';
-  listIndex: number;
+interface MockListTileSlot {
+  display: string;
   title: string;
   subtitle: string;
   onclick: (() => void) | null;
 }
 
-type MockRenderedRow =
-  | MockSpacerRow
-  | MockActionsRow
-  | MockListsSyncRow
-  | MockCategoryRow
-  | MockTaskRow
-  | MockListRow;
-
-interface MockVirtualDelegate {
-  getTileInfo(index: number): {
-    type: string;
-    category?: string;
-    taskIndex?: number;
-    listIndex?: number;
-  };
-  configureTile(tile: unknown, info: unknown): void;
-}
-
-function createMockVirtualTileList() {
-  let delegate: MockVirtualDelegate | null = null;
-  let length = 0;
-  let value = 0;
-  let rows: MockRenderedRow[] = [];
-
-  function rebuild() {
-    rows = [];
-    if (!delegate) return;
-    for (let i = 0; i < length; i++) {
-      const info = delegate.getTileInfo(i);
-      if (info.type === 'spacer-pool') {
-        const row: MockSpacerRow = { kind: 'spacer', listName: '' };
-        const tile = {
-          getElementById(id: string) {
-            if (id === 'active-list-label') {
-              return {
-                get text() { return row.listName; },
-                set text(v: string) { row.listName = v; },
-              };
-            }
-            return null;
-          },
-        };
-        delegate.configureTile(tile, info);
-        rows.push(row);
-      } else if (info.type === 'actions-pool') {
-        const row: MockActionsRow = {
-          kind: 'actions',
-          syncLabel: '',
-          syncOnclick: null,
-          autohideLabel: '',
-          autohideFill: '',
-          autohideOnclick: null,
-        };
-        const tile = {
-          getElementById(id: string) {
-            if (id === 'sync-label') {
-              return {
-                get text() { return row.syncLabel; },
-                set text(v: string) { row.syncLabel = v; },
-              };
-            }
-            if (id === 'sync-touch') {
-              return {
-                get onclick() { return row.syncOnclick; },
-                set onclick(fn: (() => void) | null) { row.syncOnclick = fn; },
-              };
-            }
-            if (id === 'autohide-label') {
-              return {
-                get text() { return row.autohideLabel; },
-                set text(v: string) { row.autohideLabel = v; },
-              };
-            }
-            if (id === 'autohide-touch') {
-              return {
-                style: {
-                  get fill() { return row.autohideFill; },
-                  set fill(v: string) { row.autohideFill = v; },
-                },
-                get onclick() { return row.autohideOnclick; },
-                set onclick(fn: (() => void) | null) { row.autohideOnclick = fn; },
-              };
-            }
-            return null;
-          },
-        };
-        delegate.configureTile(tile, info);
-        rows.push(row);
-      } else if (info.type === 'lists-sync-pool') {
-        const row: MockListsSyncRow = { kind: 'lists-sync', label: '', onclick: null };
-        const tile = {
-          getElementById(id: string) {
-            if (id === 'lists-sync-label') {
-              return {
-                get text() { return row.label; },
-                set text(v: string) { row.label = v; },
-              };
-            }
-            if (id === 'lists-sync-touch') {
-              return {
-                get onclick() { return row.onclick; },
-                set onclick(fn: (() => void) | null) { row.onclick = fn; },
-              };
-            }
-            return null;
-          },
-        };
-        delegate.configureTile(tile, info);
-        rows.push(row);
-      } else if (info.type === 'category-pool') {
-        const row: MockCategoryRow = { kind: 'category', title: '' };
-        const tile = {
-          getElementById(id: string) {
-            if (id === 'category-title') {
-              return {
-                get text() { return row.title; },
-                set text(v: string) { row.title = v; },
-              };
-            }
-            return null;
-          },
-        };
-        delegate.configureTile(tile, info);
-        rows.push(row);
-      } else if (info.type === 'item-pool') {
-        const row: MockTaskRow = {
-          kind: 'task',
-          taskIndex: info.taskIndex ?? 0,
-          title: '',
-          titleFill: '#ffffff',
-          checked: false,
-          onclick: null,
-        };
-        const tile = {
-          getElementById(id: string) {
-            if (id === 'task-title') {
-              return {
-                get text() { return row.title; },
-                set text(v: string) { row.title = v; },
-                style: {
-                  get fill() { return row.titleFill; },
-                  set fill(v: string) { row.titleFill = v; },
-                },
-              };
-            }
-            if (id === 'checkbox-check') {
-              return {
-                style: {
-                  get display() { return row.checked ? 'inline' : 'none'; },
-                  set display(v: string) { row.checked = v !== 'none'; },
-                },
-              };
-            }
-            if (id === 'task-touch') {
-              return {
-                get onclick() { return row.onclick; },
-                set onclick(fn: (() => void) | null) { row.onclick = fn; },
-              };
-            }
-            return null;
-          },
-        };
-        delegate.configureTile(tile, info);
-        rows.push(row);
-      } else if (info.type === 'list-pool') {
-        const row: MockListRow = {
-          kind: 'list',
-          listIndex: info.listIndex ?? 0,
-          title: '',
-          subtitle: '',
-          onclick: null,
-        };
-        const tile = {
-          getElementById(id: string) {
-            if (id === 'list-title') {
-              return {
-                get text() { return row.title; },
-                set text(v: string) { row.title = v; },
-              };
-            }
-            if (id === 'list-subtitle') {
-              return {
-                get text() { return row.subtitle; },
-                set text(v: string) { row.subtitle = v; },
-              };
-            }
-            if (id === 'list-touch') {
-              return {
-                get onclick() { return row.onclick; },
-                set onclick(fn: (() => void) | null) { row.onclick = fn; },
-              };
-            }
-            return null;
-          },
-        };
-        delegate.configureTile(tile, info);
-        rows.push(row);
-      }
-    }
-  }
-
-  return {
-    get delegate() { return delegate; },
-    set delegate(d: MockVirtualDelegate | null) { delegate = d; },
-    get length() { return length; },
-    set length(n: number) { length = n; rebuild(); },
-    get value() { return value; },
-    set value(v: number) { value = v; },
-    get rows() { return rows; },
-    get taskRows(): MockTaskRow[] {
-      return rows.filter((r): r is MockTaskRow => r.kind === 'task');
-    },
-    get categoryRows(): MockCategoryRow[] {
-      return rows.filter((r): r is MockCategoryRow => r.kind === 'category');
-    },
-    get listRows(): MockListRow[] {
-      return rows.filter((r): r is MockListRow => r.kind === 'list');
-    },
-    get actionsRow(): MockActionsRow | undefined {
-      return rows.find((r): r is MockActionsRow => r.kind === 'actions');
-    },
-  };
-}
-
-function createMockWatchDocument() {
+function createMockWatchDocument(rowSlotCount = 40, listSlotCount = 12) {
   const status = { text: '' };
   const pageHint = { text: '' };
+  const activeListLabel = { text: '' };
+  const syncLabel = { text: 'Sync' };
+  const syncTouch = { onclick: null as (() => void) | null };
+  const autohideLabel = { text: 'Autohide' };
+  const autohideTouch = {
+    style: { fill: '#374151' },
+    onclick: null as (() => void) | null,
+  };
+  const listsSyncLabel = { text: 'Sync Lists' };
+  const listsSyncTouch = { onclick: null as (() => void) | null };
+
   let panoramaValue = 0;
   let onvaluechange: (() => void) | null = null;
   const listeners = new Map<string, Array<() => void>>();
@@ -353,8 +116,48 @@ function createMockWatchDocument() {
     },
   };
 
-  const checklist = createMockVirtualTileList();
-  const listsChecklist = createMockVirtualTileList();
+  const rowSlots: MockStaticRowSlot[] = [];
+  for (let i = 0; i < rowSlotCount; i++) {
+    rowSlots.push({
+      display: 'none',
+      categoryDisplay: 'none',
+      categoryTitle: '',
+      taskDisplay: 'none',
+      taskTitle: '',
+      taskTitleFill: '#ffffff',
+      checked: false,
+      onclick: null,
+    });
+  }
+
+  const listSlots: MockListTileSlot[] = [];
+  for (let i = 0; i < listSlotCount; i++) {
+    listSlots.push({
+      display: 'none',
+      title: '',
+      subtitle: '',
+      onclick: null,
+    });
+  }
+
+  const checklist = {
+    value: 0,
+    get visibleCategories(): string[] {
+      return rowSlots
+        .filter((s) => s.display !== 'none' && s.categoryDisplay !== 'none')
+        .map((s) => s.categoryTitle);
+    },
+    get visibleTasks(): MockStaticRowSlot[] {
+      return rowSlots.filter((s) => s.display !== 'none' && s.taskDisplay !== 'none');
+    },
+  };
+
+  const listsChecklist = {
+    value: 0,
+    get visibleLists(): MockListTileSlot[] {
+      return listSlots.filter((s) => s.display !== 'none');
+    },
+  };
 
   const doc = {
     getElementById(id: string) {
@@ -363,11 +166,157 @@ function createMockWatchDocument() {
       if (id === 'container') return container;
       if (id === 'checklist') return checklist;
       if (id === 'lists-checklist') return listsChecklist;
+      if (id === 'top-spacer-row') {
+        return {
+          getElementById(subId: string) {
+            return subId === 'active-list-label' ? activeListLabel : null;
+          },
+        };
+      }
+      if (id === 'actions-row') {
+        return {
+          getElementById(subId: string) {
+            if (subId === 'sync-label') return syncLabel;
+            if (subId === 'sync-touch') return syncTouch;
+            if (subId === 'autohide-label') return autohideLabel;
+            if (subId === 'autohide-touch') return autohideTouch;
+            return null;
+          },
+        };
+      }
+      if (id === 'lists-sync-row') {
+        return {
+          getElementById(subId: string) {
+            if (subId === 'lists-sync-label') return listsSyncLabel;
+            if (subId === 'lists-sync-touch') return listsSyncTouch;
+            return null;
+          },
+        };
+      }
+
+      const rowMatch = /^row-(\d+)$/.exec(id);
+      if (rowMatch) {
+        const idx = Number(rowMatch[1]);
+        if (idx >= rowSlots.length) return null;
+        const slot = rowSlots[idx];
+        return {
+          getElementById(subId: string) {
+            if (subId === 'row-tile-list') {
+              return {
+                style: {
+                  get display() { return slot.display; },
+                  set display(v: string) { slot.display = v; },
+                },
+              };
+            }
+            if (subId === 'category-group') {
+              return {
+                style: {
+                  get display() { return slot.categoryDisplay; },
+                  set display(v: string) { slot.categoryDisplay = v; },
+                },
+              };
+            }
+            if (subId === 'category-title') {
+              return {
+                get text() { return slot.categoryTitle; },
+                set text(v: string) { slot.categoryTitle = v; },
+              };
+            }
+            if (subId === 'task-group') {
+              return {
+                style: {
+                  get display() { return slot.taskDisplay; },
+                  set display(v: string) { slot.taskDisplay = v; },
+                },
+              };
+            }
+            if (subId === 'task-title') {
+              return {
+                get text() { return slot.taskTitle; },
+                set text(v: string) { slot.taskTitle = v; },
+                style: {
+                  get fill() { return slot.taskTitleFill; },
+                  set fill(v: string) { slot.taskTitleFill = v; },
+                },
+              };
+            }
+            if (subId === 'checkbox-check') {
+              return {
+                style: {
+                  get display() { return slot.checked ? 'inline' : 'none'; },
+                  set display(v: string) { slot.checked = v !== 'none'; },
+                },
+              };
+            }
+            if (subId === 'task-touch') {
+              return {
+                get onclick() { return slot.onclick; },
+                set onclick(fn: (() => void) | null) { slot.onclick = fn; },
+              };
+            }
+            return null;
+          },
+        };
+      }
+
+      const listMatch = /^list-item-(\d+)$/.exec(id);
+      if (listMatch) {
+        const idx = Number(listMatch[1]);
+        if (idx >= listSlots.length) return null;
+        const slot = listSlots[idx];
+        return {
+          getElementById(subId: string) {
+            if (subId === 'list-tile-list') {
+              return {
+                style: {
+                  get display() { return slot.display; },
+                  set display(v: string) { slot.display = v; },
+                },
+              };
+            }
+            if (subId === 'list-title') {
+              return {
+                get text() { return slot.title; },
+                set text(v: string) { slot.title = v; },
+              };
+            }
+            if (subId === 'list-subtitle') {
+              return {
+                get text() { return slot.subtitle; },
+                set text(v: string) { slot.subtitle = v; },
+              };
+            }
+            if (subId === 'list-touch') {
+              return {
+                get onclick() { return slot.onclick; },
+                set onclick(fn: (() => void) | null) { slot.onclick = fn; },
+              };
+            }
+            return null;
+          },
+        };
+      }
+
       return null;
     },
   };
 
-  return { doc, status, pageHint, container, checklist, listsChecklist };
+  return {
+    doc,
+    status,
+    pageHint,
+    activeListLabel,
+    syncLabel,
+    syncTouch,
+    autohideLabel,
+    autohideTouch,
+    listsSyncLabel,
+    listsSyncTouch,
+    container,
+    checklist,
+    listsChecklist,
+  };
 }
 
 function makeIcs(
@@ -397,8 +346,8 @@ async function flushPromises(): Promise<void> {
   }
 }
 
-describe('Fitbit Watch panorama navigation, uniform virtual tile list, autohide, local fs persistence, and reconciliation', () => {
-  it('groups consecutive tasks under single category header rows after row 0 spacer and row 1 actions, and filters completed items in Autohide mode', () => {
+describe('Fitbit Watch panorama navigation, static tile list, autohide, local fs persistence, and reconciliation', () => {
+  it('groups consecutive tasks under single category header rows and filters completed items in Autohide mode', () => {
     const items = [
       { uid: '1', summary: 'Apples', categories: ['Produce'], completed: false },
       { uid: '2', summary: 'Bananas', categories: ['Produce'], completed: true },
@@ -407,25 +356,20 @@ describe('Fitbit Watch panorama navigation, uniform virtual tile list, autohide,
     ];
 
     expect(buildTaskRows(items)).toEqual([
-      { type: 'spacer-pool' },
-      { type: 'actions-pool' },
-      { type: 'category-pool', category: 'Produce' },
-      { type: 'item-pool', taskIndex: 0 },
-      { type: 'item-pool', taskIndex: 1 },
-      { type: 'category-pool', category: 'Dairy' },
-      { type: 'item-pool', taskIndex: 2 },
-      { type: 'category-pool', category: 'Uncategorized' },
-      { type: 'item-pool', taskIndex: 3 },
+      { kind: 'category', category: 'Produce' },
+      { kind: 'task', taskIndex: 0 },
+      { kind: 'task', taskIndex: 1 },
+      { kind: 'category', category: 'Dairy' },
+      { kind: 'task', taskIndex: 2 },
+      { kind: 'category', category: 'Uncategorized' },
+      { kind: 'task', taskIndex: 3 },
     ]);
 
-    // With hideCompleted=true: Bananas, Milk, and the now-empty Dairy category header are omitted!
     expect(buildTaskRows(items, { hideCompleted: true })).toEqual([
-      { type: 'spacer-pool' },
-      { type: 'actions-pool' },
-      { type: 'category-pool', category: 'Produce' },
-      { type: 'item-pool', taskIndex: 0 },
-      { type: 'category-pool', category: 'Uncategorized' },
-      { type: 'item-pool', taskIndex: 3 },
+      { kind: 'category', category: 'Produce' },
+      { kind: 'task', taskIndex: 0 },
+      { kind: 'category', category: 'Uncategorized' },
+      { kind: 'task', taskIndex: 3 },
     ]);
   });
 
@@ -468,29 +412,24 @@ describe('Fitbit Watch panorama navigation, uniform virtual tile list, autohide,
     watchApp.start();
     await flushPromises();
 
-    // Default: Show All (button reads "Autohide" to enable hiding)
-    expect(ui.checklist.actionsRow!.autohideLabel).toBe('Autohide');
-    expect(ui.checklist.categoryRows.map((c) => c.title)).toEqual(['Produce', 'Dairy']);
-    expect(ui.checklist.taskRows.map((t) => t.title)).toEqual(['Apples', 'Cheese', 'Milk']);
+    expect(ui.autohideLabel.text).toBe('Autohide');
+    expect(ui.checklist.visibleCategories).toEqual(['Produce', 'Dairy']);
+    expect(ui.checklist.visibleTasks.map((t) => t.taskTitle)).toEqual(['Apples', 'Cheese', 'Milk']);
 
-    // Tap Autohide → hides completed Apples + empty Produce category, button switches to "Show All"
-    ui.checklist.actionsRow!.autohideOnclick!();
+    ui.autohideTouch.onclick!();
     expect(watchApp.getState().hideCompleted).toBe(true);
-    expect(ui.checklist.actionsRow!.autohideLabel).toBe('Show All');
-    expect(ui.checklist.categoryRows.map((c) => c.title)).toEqual(['Dairy']);
-    expect(ui.checklist.taskRows.map((t) => t.title)).toEqual(['Cheese', 'Milk']);
+    expect(ui.autohideLabel.text).toBe('Show All');
+    expect(ui.checklist.visibleCategories).toEqual(['Dairy']);
+    expect(ui.checklist.visibleTasks.map((t) => t.taskTitle)).toEqual(['Cheese', 'Milk']);
     expect((fs.files.get('t-lists.cbor') as { hideCompleted?: boolean }).hideCompleted).toBe(true);
 
-    // Tap Cheese while Autohide is active → Cheese immediately disappears, Milk remains
-    ui.checklist.taskRows[0].onclick!();
-    expect(ui.checklist.taskRows.map((t) => t.title)).toEqual(['Milk']);
+    ui.checklist.visibleTasks[0].onclick!();
+    expect(ui.checklist.visibleTasks.map((t) => t.taskTitle)).toEqual(['Milk']);
 
-    // Tap Milk → all items checked, list scrolls to value=0 so Sync & Show All are immediately reachable
-    ui.checklist.taskRows[0].onclick!();
-    expect(ui.checklist.taskRows).toEqual([]);
+    ui.checklist.visibleTasks[0].onclick!();
+    expect(ui.checklist.visibleTasks).toEqual([]);
     expect(ui.checklist.value).toBe(0);
 
-    // Relaunch offline → hideCompleted preference restored from t-lists.cbor
     const ui2 = createMockWatchDocument();
     const watchApp2 = createWatchApp({
       document: ui2.doc,
@@ -500,17 +439,16 @@ describe('Fitbit Watch panorama navigation, uniform virtual tile list, autohide,
     });
     watchApp2.start();
     expect(watchApp2.getState().hideCompleted).toBe(true);
-    expect(ui2.checklist.actionsRow!.autohideLabel).toBe('Show All');
-    expect(ui2.checklist.taskRows).toEqual([]);
+    expect(ui2.autohideLabel.text).toBe('Show All');
+    expect(ui2.checklist.visibleTasks).toEqual([]);
 
-    // Tap Show All → all 3 items reappear!
-    ui2.checklist.actionsRow!.autohideOnclick!();
+    ui2.autohideTouch.onclick!();
     expect(watchApp2.getState().hideCompleted).toBe(false);
-    expect(ui2.checklist.actionsRow!.autohideLabel).toBe('Autohide');
-    expect(ui2.checklist.taskRows.map((t) => t.title)).toEqual(['Apples', 'Cheese', 'Milk']);
+    expect(ui2.autohideLabel.text).toBe('Autohide');
+    expect(ui2.checklist.visibleTasks.map((t) => t.taskTitle)).toEqual(['Apples', 'Cheese', 'Milk']);
   });
 
-  it('supports swiping to Lists via #panoramaview, going back, pull-down Sync tile, and independent CBOR fs caches', async () => {
+  it('supports swiping to Lists via #panoramaview, going back, pull-down Sync button, and independent CBOR fs caches', async () => {
     const backend = createMockCalDav({
       auth: { username: 'alice', password: 'secret' },
       calendars: [
@@ -560,22 +498,19 @@ describe('Fitbit Watch panorama navigation, uniform virtual tile list, autohide,
     watchApp.start();
     await flushPromises();
 
-    // Multiple VTODO lists available → panorama lands on Lists page (1)
     expect(ui.container.value).toBe(1);
     expect(ui.listsChecklist.value).toBe(0);
     expect(ui.status.text).toBe('Lists (2)');
-    expect(ui.listsChecklist.listRows.map((r) => r.title)).toEqual(['Shopping', 'Hardware']);
+    expect(ui.listsChecklist.visibleLists.map((r) => r.title)).toEqual(['Shopping', 'Hardware']);
 
-    // Select Shopping (3 items + 2 categories = 7 rows < 8 → starts at value=0 so nothing clips;
-    // lists with >= 8 rows start scrolled past rows 0-1 at value=2)
-    ui.listsChecklist.listRows[0].onclick!();
+    ui.listsChecklist.visibleLists[0].onclick!();
     await flushPromises();
     expect(ui.container.value).toBe(0);
-    expect(ui.checklist.value).toBe(0);
+    expect(ui.checklist.value).toBe(0); // 7 total rows < 8
     expect(ui.status.text).toBe('3 left');
     expect(ui.pageHint.text).toBe('Lists ›');
-    expect(ui.checklist.categoryRows.map((c) => c.title)).toEqual(['Produce', 'Dairy']);
-    expect(ui.checklist.taskRows.map((t) => t.title)).toEqual(['Apples', 'Bananas', 'Milk']);
+    expect(ui.checklist.visibleCategories).toEqual(['Produce', 'Dairy']);
+    expect(ui.checklist.visibleTasks.map((t) => t.taskTitle)).toEqual(['Apples', 'Bananas', 'Milk']);
 
     expect(watchApp.goBack()).toBe(false);
     expect(ui.container.value).toBe(0);
@@ -588,21 +523,21 @@ describe('Fitbit Watch panorama navigation, uniform virtual tile list, autohide,
     expect(ui.container.value).toBe(1);
     expect(ui.status.text).toBe('Lists (2)');
     expect(ui.pageHint.text).toBe('‹ Tasks');
-    expect(ui.listsChecklist.listRows[0].subtitle).toBe('3 left');
-    expect(ui.listsChecklist.listRows[1].subtitle).toBe('Tap to load');
+    expect(ui.listsChecklist.visibleLists[0].subtitle).toBe('3 left');
+    expect(ui.listsChecklist.visibleLists[1].subtitle).toBe('Tap to load');
 
     expect(watchApp.goBack()).toBe(true);
     expect(ui.container.value).toBe(0);
     expect(ui.pageHint.text).toBe('Lists ›');
-    expect(ui.checklist.taskRows[0].title).toBe('Apples');
+    expect(ui.checklist.visibleTasks[0].taskTitle).toBe('Apples');
 
     ui.container.swipeTo(1);
-    ui.listsChecklist.listRows[1].onclick!();
+    ui.listsChecklist.visibleLists[1].onclick!();
     await flushPromises();
     expect(ui.container.value).toBe(0);
     expect(ui.status.text).toBe('1 left');
-    expect(ui.checklist.categoryRows.map((c) => c.title)).toEqual(['Fasteners']);
-    expect(ui.checklist.taskRows[0].title).toBe('Wood Screws');
+    expect(ui.checklist.visibleCategories).toEqual(['Fasteners']);
+    expect(ui.checklist.visibleTasks[0].taskTitle).toBe('Wood Screws');
     expect((fs.files.get('t-lists.cbor') as { activeCalendarHref?: string }).activeCalendarHref).toBe(
       '/remote.php/dav/calendars/alice/hardware/',
     );
@@ -650,7 +585,7 @@ describe('Fitbit Watch panorama navigation, uniform virtual tile list, autohide,
     });
     watchApp.start();
     await flushPromises();
-    ui1.listsChecklist.listRows[0].onclick!();
+    ui1.listsChecklist.visibleLists[0].onclick!();
     await flushPromises();
     expect(ui1.status.text).toBe('2 left');
     expect(watchApp.goBack()).toBe(false);
@@ -684,46 +619,43 @@ describe('Fitbit Watch panorama navigation, uniform virtual tile list, autohide,
 
     expect(ui2.container.value).toBe(0);
     expect(ui2.checklist.value).toBe(0);
-    expect(ui2.checklist.taskRows.map((t) => t.title)).toEqual(['Apples', 'Milk']);
+    expect(ui2.checklist.visibleTasks.map((t) => t.taskTitle)).toEqual(['Apples', 'Milk']);
     expect(sentTypes).toEqual([]);
 
     connected = true;
     watchApp.onConnectionChange(true);
     expect(sentTypes).toEqual(['FETCH_TASKS']);
     expect(ui2.status.text).toBe('Syncing...');
-    expect(ui2.checklist.taskRows.map((t) => t.title)).toEqual(['Apples', 'Milk']);
+    expect(ui2.checklist.visibleTasks.map((t) => t.taskTitle)).toEqual(['Apples', 'Milk']);
 
     await flushPromises();
     while (deliveredReplies.length > 0) {
       deliveredReplies.shift()!();
     }
     expect(ui2.status.text).toBe('3 left');
-    expect(ui2.checklist.taskRows.map((t) => t.title)).toContain('Bread');
+    // Now 3 items + 3 categories + 2 header rows = 8 rows → starts scrolled past actions at value=2!
+    expect(ui2.checklist.value).toBe(2);
+    expect(ui2.checklist.visibleTasks.map((t) => t.taskTitle)).toContain('Bread');
   });
 
-  it('enforces uniform tile heights across all VirtualTileList pools to prevent Fitbit OS 4 scroll drift, plus split Sync/Autohide buttons and 28px fonts', () => {
+  it('uses static #tile-list (no virtual="1") inside #panoramaview with split Sync/Autohide buttons, category headers, and 28px fonts', () => {
     const gui = fsNode.readFileSync(path.resolve(__dirname, '../resources/index.gui'), 'utf8');
     const css = fsNode.readFileSync(path.resolve(__dirname, '../resources/styles.css'), 'utf8');
     const widgets = fsNode.readFileSync(path.resolve(__dirname, '../resources/widgets.gui'), 'utf8');
 
     expect(widgets).toContain('panoramaview_widget.gui');
     expect(gui).toContain('href="#panoramaview"');
-    expect(gui).toContain('<var id="virtual" value="1" />');
-    expect(gui).toContain('id="actions-pool"');
-    expect(gui).toContain('id="sync-touch"');
-    expect(gui).toContain('id="autohide-touch"');
-    expect(gui).toContain('id="category-pool"');
-    expect(gui).toContain('id="item-pool"');
+    // Avoid VirtualTileList upward-scroll lockup bug on Versa 2
+    expect(gui).not.toContain('id="virtual"');
+    expect(gui).not.toContain('tile-list-pool');
     expect(gui).not.toContain('checkbox-tile');
 
-    // Verify ALL 4 Tasks VirtualTileList symbols have the EXACT same explicit height="52"
-    for (const symId of ['top-spacer', 'actions-tile', 'category-header', 'task-item']) {
-      expect(gui).toMatch(new RegExp(`<symbol\\s+id="${symId}"[^>]*class="task-list-tile"[^>]*height="52"`));
-    }
-    // Verify ALL 2 Lists VirtualTileList symbols have the EXACT same explicit height="64"
-    for (const symId of ['lists-sync-tile', 'list-item']) {
-      expect(gui).toMatch(new RegExp(`<symbol\\s+id="${symId}"[^>]*class="lists-list-tile"[^>]*height="64"`));
-    }
+    expect(gui).toContain('id="top-spacer-row"');
+    expect(gui).toContain('id="actions-row"');
+    expect(gui).toContain('id="sync-touch"');
+    expect(gui).toContain('id="autohide-touch"');
+    expect(gui).toContain('id="row-0"');
+    expect(gui).toContain('id="row-59"');
 
     expect(gui).toMatch(/id="task-title"[^>]*font-size="28"/);
     expect(gui).toMatch(/id="list-title"[^>]*font-size="28"/);
@@ -731,7 +663,6 @@ describe('Fitbit Watch panorama navigation, uniform virtual tile list, autohide,
     expect(css).toMatch(/\.task-list-tile\s*\{[^}]*height:\s*52;/);
     expect(css).toMatch(/\.lists-list-tile\s*\{[^}]*height:\s*64;/);
 
-    // Slim 28px header bar declared AFTER panorama so it always paints on top
     expect(gui).toMatch(/id="header-bg"[^>]*height="26"/);
     expect(gui.indexOf('id="header-bg"')).toBeGreaterThan(gui.indexOf('id="container"'));
   });
@@ -781,21 +712,20 @@ describe('Fitbit Watch panorama navigation, uniform virtual tile list, autohide,
     watchApp.start();
     await flushPromises();
     expect(ui.status.text).toBe('2 left');
-    expect(ui.checklist.value).toBe(0);
 
     sentMessages.length = 0;
     writeCount = 0;
 
-    ui.checklist.taskRows[0].onclick!();
+    ui.checklist.visibleTasks[0].onclick!();
     clockMs += 1000;
-    ui.checklist.taskRows[0].onclick!();
+    ui.checklist.visibleTasks[0].onclick!();
     clockMs += 1000;
-    ui.checklist.taskRows[1].onclick!();
+    ui.checklist.visibleTasks[1].onclick!();
 
     expect(sentMessages).toEqual([]);
     expect(writeCount).toBe(0);
-    expect(ui.checklist.taskRows[0].checked).toBe(false);
-    expect(ui.checklist.taskRows[1].checked).toBe(true);
+    expect(ui.checklist.visibleTasks[0].checked).toBe(false);
+    expect(ui.checklist.visibleTasks[1].checked).toBe(true);
     expect(ui.status.text).toBe('2 unsynced');
     expect(watchApp.getState().pending).toEqual([
       { uid: 'apples', completed: false, updatedAt: Date.parse('2026-05-01T10:05:01.000Z') },
@@ -805,12 +735,10 @@ describe('Fitbit Watch panorama navigation, uniform virtual tile list, autohide,
     watchApp.flushPersistence();
     expect(writeCount).toBe(1);
 
-    // Pull down to row 0 and tap Sync button → pushes toggles and resets scroll cleanly
     ui.checklist.value = 0;
-    ui.checklist.actionsRow!.syncOnclick!();
+    ui.syncTouch.onclick!();
     await flushPromises();
     expect(ui.status.text).toBe('1 left');
-    expect(ui.checklist.value).toBe(0);
     expect(parseVTodo(backend.getTasks('shopping').find((t) => t.uid === 'milk')!.ics).status).toBe('COMPLETED');
     expect(parseVTodo(backend.getTasks('shopping').find((t) => t.uid === 'apples')!.ics).status).toBe('NEEDS-ACTION');
   });
@@ -866,16 +794,16 @@ describe('Fitbit Watch panorama navigation, uniform virtual tile list, autohide,
     watchApp.start();
     await flushPromises();
 
-    ui.listsChecklist.listRows[0].onclick!();
+    ui.listsChecklist.visibleLists[0].onclick!();
     await flushPromises();
-    expect(ui.checklist.categoryRows.map((c) => c.title)).toEqual(['Produce', 'Dairy']);
-    expect(ui.checklist.taskRows.map((t) => t.title)).toEqual(['Apples', 'Milk']);
+    expect(ui.checklist.visibleCategories).toEqual(['Produce', 'Dairy']);
+    expect(ui.checklist.visibleTasks.map((t) => t.taskTitle)).toEqual(['Apples', 'Milk']);
 
     ui.container.swipeTo(1);
-    ui.listsChecklist.listRows[1].onclick!();
+    ui.listsChecklist.visibleLists[1].onclick!();
     await flushPromises();
-    expect(ui.checklist.categoryRows.map((c) => c.title)).toEqual(['Electrical', 'Fasteners']);
-    expect(ui.checklist.taskRows.map((t) => t.title)).toEqual(['Romex Wire', 'Wood Screws']);
+    expect(ui.checklist.visibleCategories).toEqual(['Electrical', 'Fasteners']);
+    expect(ui.checklist.visibleTasks.map((t) => t.taskTitle)).toEqual(['Romex Wire', 'Wood Screws']);
   });
 
   it('immediately renders cached list on restart and reconciles: newer server edits win, newer watch toggles sync up', async () => {
@@ -958,8 +886,8 @@ describe('Fitbit Watch panorama navigation, uniform virtual tile list, autohide,
     connected = false;
     watchApp.onConnectionChange(false);
     clockMs = tWatchOffline;
-    ui1.checklist.taskRows[0].onclick!();
-    ui1.checklist.taskRows[1].onclick!();
+    ui1.checklist.visibleTasks[0].onclick!();
+    ui1.checklist.visibleTasks[1].onclick!();
     expect(ui1.status.text).toBe('Offline (2 pending)');
 
     backend.setTask({
@@ -1005,10 +933,10 @@ describe('Fitbit Watch panorama navigation, uniform virtual tile list, autohide,
     watchApp.start();
 
     expect(ui2.container.value).toBe(0);
-    expect(ui2.checklist.taskRows[0].title).toBe('Apples');
-    expect(ui2.checklist.taskRows[0].checked).toBe(true);
-    expect(ui2.checklist.taskRows[1].title).toBe('Milk');
-    expect(ui2.checklist.taskRows[1].checked).toBe(true);
+    expect(ui2.checklist.visibleTasks[0].taskTitle).toBe('Apples');
+    expect(ui2.checklist.visibleTasks[0].checked).toBe(true);
+    expect(ui2.checklist.visibleTasks[1].taskTitle).toBe('Milk');
+    expect(ui2.checklist.visibleTasks[1].checked).toBe(true);
     expect(ui2.status.text).toBe('Syncing...');
 
     for (let round = 0; round < 5; round++) {
@@ -1019,10 +947,10 @@ describe('Fitbit Watch panorama navigation, uniform virtual tile list, autohide,
     }
 
     expect(ui2.status.text).toBe('1 left');
-    expect(ui2.checklist.taskRows[0].title).toBe('Honeycrisp Apples');
-    expect(ui2.checklist.taskRows[0].checked).toBe(true);
-    expect(ui2.checklist.taskRows[1].title).toBe('Organic Milk');
-    expect(ui2.checklist.taskRows[1].checked).toBe(false);
+    expect(ui2.checklist.visibleTasks[0].taskTitle).toBe('Honeycrisp Apples');
+    expect(ui2.checklist.visibleTasks[0].checked).toBe(true);
+    expect(ui2.checklist.visibleTasks[1].taskTitle).toBe('Organic Milk');
+    expect(ui2.checklist.visibleTasks[1].checked).toBe(false);
 
     const finalMilk = parseVTodo(backend.getTasks('shopping').find((t) => t.uid === 'milk')!.ics);
     const finalApples = parseVTodo(backend.getTasks('shopping').find((t) => t.uid === 'apples')!.ics);
@@ -1085,13 +1013,13 @@ describe('Fitbit Watch panorama navigation, uniform virtual tile list, autohide,
       }),
     });
 
-    ui.checklist.taskRows[0].onclick!();
-    expect(ui.checklist.taskRows[0].checked).toBe(true);
+    ui.checklist.visibleTasks[0].onclick!();
+    expect(ui.checklist.visibleTasks[0].checked).toBe(true);
     expect(ui.status.text).toBe('1 unsynced');
     watchApp.requestSync();
     await flushPromises();
 
-    expect(ui.checklist.taskRows[0].checked).toBe(false);
+    expect(ui.checklist.visibleTasks[0].checked).toBe(false);
     expect(ui.status.text).toBe('1 left');
     expect(parseVTodo(backend.getTasks('shopping')[0].ics).status).toBe('NEEDS-ACTION');
 
@@ -1182,10 +1110,10 @@ describe('Fitbit Watch panorama navigation, uniform virtual tile list, autohide,
     expect(ui.container.value).toBe(0);
     expect(ui.checklist.value).toBe(0);
     expect(ui.status.text).toBe('Offline');
-    expect(ui.checklist.categoryRows.map((c) => c.title)).toEqual(['Produce', 'Dairy']);
-    expect(ui.checklist.taskRows[0].title).toBe('Apples');
-    expect(ui.checklist.taskRows[0].checked).toBe(true);
-    expect(ui.checklist.taskRows[1].title).toBe('Milk');
-    expect(ui.checklist.taskRows[1].checked).toBe(false);
+    expect(ui.checklist.visibleCategories).toEqual(['Produce', 'Dairy']);
+    expect(ui.checklist.visibleTasks[0].taskTitle).toBe('Apples');
+    expect(ui.checklist.visibleTasks[0].checked).toBe(true);
+    expect(ui.checklist.visibleTasks[1].taskTitle).toBe('Milk');
+    expect(ui.checklist.visibleTasks[1].checked).toBe(false);
   });
 });

@@ -162,12 +162,13 @@ test('FIT-001: Versa 2 multi-list selection, category-sorted tasks, offline fs r
     await page.evaluate(() => window.__fitbitHarness.pullToActions());
     await page.getByTestId('watch-autohide-btn').click();
     await expect(page.getByTestId('watch-autohide-btn')).toHaveText('Show All');
-    await expect(page.getByTestId('watch-item-0')).toHaveCount(0);
     await expect(page.getByTestId('watch-category-0')).toHaveText('Bakery');
+    await expect(page.getByTestId('watch-item-0')).toContainText('Sourdough');
+    await expect(page.getByTestId('watch-tasks-view')).not.toContainText('Apples');
     await page.evaluate(() => window.__fitbitHarness.pullToActions());
     await page.getByTestId('watch-autohide-btn').click();
     await expect(page.getByTestId('watch-autohide-btn')).toHaveText('Autohide');
-    await expect(page.getByTestId('watch-item-0')).toBeVisible();
+    await expect(page.getByTestId('watch-item-0')).toContainText('Apples');
 
     // Disconnect Bluetooth, toggle Milk offline, then reload watch app while still offline
     await page.evaluate(() => window.__fitbitHarness.setOnline(false));
