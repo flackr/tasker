@@ -95,3 +95,9 @@ To update intentional Playwright screenshot baselines:
 ```bash
 npm -w @tasker/web run test:e2e -- --update-snapshots
 ```
+
+## Search & Code Navigation
+
+- Always use `git grep` when searching for strings, symbols, or patterns inside this repository.
+- If you need to search untracked files, append `--untracked`.
+- Always use `git ls-files` to find files that are in the repository.
