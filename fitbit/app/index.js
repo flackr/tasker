@@ -1,6 +1,6 @@
 import { me as appbit } from "appbit";
 import document from "document";
-import * as fs from "fs";
+import { readFileSync, writeFileSync } from "fs";
 import * as messaging from "messaging";
 import { me as device } from "device";
 import asap from "fitbit-asap/app";
@@ -8,9 +8,18 @@ import { createWatchApp } from "./watch-app";
 
 if (!device.screen) device.screen = { width: 300, height: 300 };
 
+// Wrap named fs exports directly so Rollup (interop: "auto" for Fitbit OS 4
+// device modules) emits direct require("fs").readFileSync/writeFileSync calls
+// instead of an _interopNamespace(Object.keys(fs)) wrapper, which fails on
+// JerryScript's native fs module bindings.
+const watchFs = {
+  readFileSync: (filename, encoding) => readFileSync(filename, encoding),
+  writeFileSync: (filename, data, encoding) => writeFileSync(filename, data, encoding),
+};
+
 const app = createWatchApp({
   document,
-  fs,
+  fs: watchFs,
   send: (payload) => asap.send(payload, { timeout: 15000 }),
   isConnected: () => messaging.peerSocket.readyState === messaging.peerSocket.OPEN,
   persistDelayMs: 350,

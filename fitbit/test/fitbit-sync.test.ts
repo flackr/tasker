@@ -14,16 +14,51 @@ function createMemorySettings(initial: Record<string, string> = {}) {
   };
 }
 
+function assertNoUndefinedValues(value: unknown, pathLabel = 'root'): void {
+  if (value === undefined) {
+    throw new Error(`Undefined value not allowed in CBOR payload at ${pathLabel}`);
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, idx) => assertNoUndefinedValues(item, `${pathLabel}[${idx}]`));
+    return;
+  }
+  if (value && typeof value === 'object') {
+    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+      assertNoUndefinedValues(val, `${pathLabel}.${key}`);
+    }
+  }
+}
+
 function createMemoryFs() {
   const files = new Map<string, unknown>();
+  const encodings = new Map<string, string>();
+  const validEncodings = new Set(['cbor', 'json', 'utf-8', 'ascii']);
   return {
     files,
-    readFileSync: (name: string) => {
+    encodings,
+    readFileSync: (name: string, encoding?: string) => {
+      if (!encoding || !validEncodings.has(encoding)) {
+        throw new Error(`Invalid Fitbit fs encoding: ${String(encoding)}`);
+      }
       if (!files.has(name)) throw new Error(`ENOENT: ${name}`);
+      const storedEnc = encodings.get(name);
+      if (storedEnc && storedEnc !== encoding) {
+        throw new Error(`Encoding mismatch for ${name}: ${storedEnc} vs ${encoding}`);
+      }
       return JSON.parse(JSON.stringify(files.get(name)));
     },
-    writeFileSync: (name: string, data: unknown) => {
+    writeFileSync: (name: string, data: unknown, encoding?: string) => {
+      if (!encoding || !validEncodings.has(encoding)) {
+        throw new Error(`Invalid Fitbit fs encoding: ${String(encoding)}`);
+      }
+      if (!name || name.startsWith('/') || name.length > 24) {
+        throw new Error(`Unsafe Fitbit fs filename: ${name}`);
+      }
+      if (encoding === 'cbor') {
+        assertNoUndefinedValues(data, name);
+      }
       files.set(name, JSON.parse(JSON.stringify(data)));
+      encodings.set(name, encoding);
     },
   };
 }
@@ -236,12 +271,13 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
     expect(ui.taskTiles[1].checkbox.text).toBe('Milk');
 
     // Hardware Back from top-level tasks view returns false (lets Versa 2 exit app cleanly)
-    // and keeps activeCalendarHref remembered in tasker-lists.json!
+    // and keeps activeCalendarHref remembered in t-lists.cbor!
     expect(watchApp.goBack()).toBe(false);
     expect(ui.tasksView.style.display).toBe('inline');
-    expect((fs.files.get('tasker-lists.json') as { activeCalendarHref?: string }).activeCalendarHref).toBe(
+    expect((fs.files.get('t-lists.cbor') as { activeCalendarHref?: string }).activeCalendarHref).toBe(
       '/remote.php/dav/calendars/alice/shopping/',
     );
+    expect(fs.encodings.get('t-lists.cbor')).toBe('cbor');
 
     // Tap header "Lists" button → opens Lists sub-view without clearing activeCalendarHref
     ui.backBtn.onclick!();
@@ -267,16 +303,19 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
     await flushPromises();
     expect(ui.status.text).toBe('1 left');
     expect(ui.taskTiles[0].checkbox.text).toBe('Wood Screws');
-    expect((fs.files.get('tasker-lists.json') as { activeCalendarHref?: string }).activeCalendarHref).toBe(
+    expect((fs.files.get('t-lists.cbor') as { activeCalendarHref?: string }).activeCalendarHref).toBe(
       '/remote.php/dav/calendars/alice/hardware/',
     );
 
-    // Verify separate per-list files exist in Fitbit fs
+    // Verify separate short CBOR per-list files exist in Fitbit fs
     const shoppingFile = getListCacheFilename('/remote.php/dav/calendars/alice/shopping/');
     const hardwareFile = getListCacheFilename('/remote.php/dav/calendars/alice/hardware/');
-    expect(fs.files.has('tasker-lists.json')).toBe(true);
+    expect(shoppingFile).toMatch(/^t-[0-9a-f]{8}\.cbor$/);
+    expect(fs.files.has('t-lists.cbor')).toBe(true);
     expect(fs.files.has(shoppingFile)).toBe(true);
     expect(fs.files.has(hardwareFile)).toBe(true);
+    expect(fs.encodings.get(shoppingFile)).toBe('cbor');
+    expect(fs.encodings.get(hardwareFile)).toBe('cbor');
   });
 
   it('displays remembered list immediately on Versa 2 relaunch before Bluetooth opens, then syncs updates in background', async () => {
@@ -407,10 +446,10 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
     const fs = createMemoryFs();
     let writeCount = 0;
     const trackedFs = {
-      readFileSync: (name: string) => fs.readFileSync(name),
-      writeFileSync: (name: string, data: unknown) => {
+      readFileSync: (name: string, encoding?: string) => fs.readFileSync(name, encoding),
+      writeFileSync: (name: string, data: unknown, encoding?: string) => {
         writeCount += 1;
-        fs.writeFileSync(name, data);
+        fs.writeFileSync(name, data, encoding);
       },
     };
     const ui = createMockWatchDocument();
@@ -807,5 +846,60 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
     await flushPromises();
     expect(ui.status.text).toContain('Err:');
     expect(ui.status.text).toContain('credentials');
+  });
+
+  it('imports named fs functions directly in fitbit/app/index.js to avoid Rollup _interopNamespace on Versa 2', () => {
+    const indexSrc = fsNode.readFileSync(path.resolve(__dirname, '../app/index.js'), 'utf8');
+    expect(indexSrc).toMatch(/import\s*\{[^}]*\breadFileSync\b[^}]*\bwriteFileSync\b[^}]*\}\s*from\s*["']fs["']/);
+    expect(indexSrc).not.toMatch(/import\s+\*\s+as\s+fs\s+from\s+["']fs["']/);
+  });
+
+  it('loads cached tasks from CBOR fs storage when completely offline without Bluetooth', () => {
+    const shoppingHref = '/remote.php/dav/calendars/alice/shopping/';
+    const fs = createMemoryFs();
+    fs.writeFileSync(
+      't-lists.cbor',
+      {
+        calendars: [{ href: shoppingHref, displayName: 'Shopping' }],
+        activeCalendarHref: shoppingHref,
+        categoryOrder: ['Produce', 'Dairy'],
+      },
+      'cbor',
+    );
+    fs.writeFileSync(
+      getListCacheFilename(shoppingHref),
+      {
+        calendarHref: shoppingHref,
+        tasks: [
+          { uid: 'milk', summary: 'Milk', categories: ['Dairy'], completed: false },
+          { uid: 'apples', summary: 'Apples', categories: ['Produce'], completed: true },
+        ],
+        pending: [],
+        lastSyncedAt: Date.parse('2026-05-01T10:00:00.000Z'),
+      },
+      'cbor',
+    );
+
+    const ui = createMockWatchDocument();
+    const sent: unknown[] = [];
+    const watchApp = createWatchApp({
+      document: ui.doc,
+      fs,
+      isConnected: () => false,
+      send: (msg: unknown) => sent.push(msg),
+    });
+
+    watchApp.start();
+
+    expect(sent).toEqual([]);
+    expect(ui.tasksView.style.display).toBe('inline');
+    expect(ui.listsView.style.display).toBe('none');
+    expect(ui.status.text).toBe('Offline');
+    expect(ui.taskTiles[0].display).toBe('inline');
+    expect(ui.taskTiles[0].checkbox.text).toBe('Apples');
+    expect(ui.taskTiles[0].checkbox.value).toBe(1);
+    expect(ui.taskTiles[1].display).toBe('inline');
+    expect(ui.taskTiles[1].checkbox.text).toBe('Milk');
+    expect(ui.taskTiles[1].checkbox.value).toBe(0);
   });
 });

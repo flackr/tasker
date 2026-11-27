@@ -6,14 +6,11 @@ import {
   sortTasksByCategory,
 } from "@tasker/core/watch";
 
-var LISTS_INDEX_FILE = "tasker-lists.json";
+var LISTS_INDEX_FILE = "t-lists.cbor";
+var LEGACY_INDEX_FILE = "tasker-lists.json";
 var LEGACY_CACHE_FILE = "tasker-cache.json";
 
-/**
- * Computes a short deterministic filename (ES5-safe FNV-1a 32-bit hex) for a
- * calendar's per-list storage file on Fitbit OS File Storage.
- */
-export function getListCacheFilename(calendarHref) {
+function computeCalendarHash(calendarHref) {
   var hash = 0x811c9dc5;
   var input = String(calendarHref || "default");
   for (var i = 0; i < input.length; i++) {
@@ -31,15 +28,27 @@ export function getListCacheFilename(calendarHref) {
   while (hex.length < 8) {
     hex = "0" + hex;
   }
-  return "tasker-list-" + hex + ".json";
+  return hex;
 }
 
-function readJsonFile(fs, filename) {
+/**
+ * Computes a short deterministic CBOR filename (ES5-safe FNV-1a 32-bit hex) for a
+ * calendar's per-list storage file on Fitbit OS File Storage (15 chars total).
+ */
+export function getListCacheFilename(calendarHref) {
+  return "t-" + computeCalendarHash(calendarHref) + ".cbor";
+}
+
+function getLegacyListCacheFilename(calendarHref) {
+  return "tasker-list-" + computeCalendarHash(calendarHref) + ".json";
+}
+
+function readDataFile(fs, filename, encoding) {
   if (!fs || typeof fs.readFileSync !== "function") {
     return null;
   }
   try {
-    var data = fs.readFileSync(filename, "json");
+    var data = fs.readFileSync(filename, encoding || "cbor");
     if (data && typeof data === "object") {
       return data;
     }
@@ -49,19 +58,53 @@ function readJsonFile(fs, filename) {
   return null;
 }
 
-function writeJsonFile(fs, filename, data) {
+function writeDataFile(fs, filename, data) {
   if (!fs || typeof fs.writeFileSync !== "function") {
     return;
   }
   try {
-    fs.writeFileSync(filename, data, "json");
+    fs.writeFileSync(filename, data, "cbor");
   } catch (e) {
     // Ignore storage errors cleanly
   }
 }
 
+function sanitizeCompactTask(task) {
+  var out = {
+    uid: String(task.uid || ""),
+    summary: String(task.summary || ""),
+    categories: Array.isArray(task.categories) ? task.categories.slice() : [],
+    completed: Boolean(task.completed),
+  };
+  if (typeof task.etag === "string") {
+    out.etag = task.etag;
+  }
+  if (typeof task.lastModified === "number" && !isNaN(task.lastModified)) {
+    out.lastModified = task.lastModified;
+  }
+  return out;
+}
+
+function sanitizeCalendars(calendars) {
+  var out = [];
+  if (!Array.isArray(calendars)) return out;
+  for (var i = 0; i < calendars.length; i++) {
+    var c = calendars[i];
+    if (c && c.href) {
+      out.push({
+        href: String(c.href),
+        displayName: String(c.displayName || c.href),
+      });
+    }
+  }
+  return out;
+}
+
 function readListsIndex(fs) {
-  var data = readJsonFile(fs, LISTS_INDEX_FILE);
+  var data = readDataFile(fs, LISTS_INDEX_FILE, "cbor");
+  if (!data) {
+    data = readDataFile(fs, LEGACY_INDEX_FILE, "json");
+  }
   if (data) {
     var order = Array.isArray(data.categoryOrder)
       ? data.categoryOrder
@@ -75,15 +118,16 @@ function readListsIndex(fs) {
     };
   }
   // Backwards-compatible migration from single-file cache
-  var legacy = readJsonFile(fs, LEGACY_CACHE_FILE);
+  var legacy = readDataFile(fs, LEGACY_CACHE_FILE, "json");
   if (legacy && legacy.calendarHref) {
-    var migratedList = {
-      calendarHref: legacy.calendarHref,
-      tasks: Array.isArray(legacy.tasks) ? legacy.tasks : [],
-      pending: Array.isArray(legacy.pending) ? legacy.pending : [],
-      lastSyncedAt: legacy.lastSyncedAt,
-    };
-    writeJsonFile(fs, getListCacheFilename(legacy.calendarHref), migratedList);
+    writeListStore(
+      fs,
+      legacy.calendarHref,
+      Array.isArray(legacy.tasks) ? legacy.tasks : [],
+      Array.isArray(legacy.pending) ? legacy.pending : [],
+      legacy.lastSyncedAt,
+      undefined,
+    );
     return {
       calendars: [{ href: legacy.calendarHref, displayName: "Tasks" }],
       activeCalendarHref: legacy.calendarHref,
@@ -98,16 +142,22 @@ function readListsIndex(fs) {
 }
 
 function writeListsIndex(fs, state) {
-  writeJsonFile(fs, LISTS_INDEX_FILE, {
-    calendars: state.calendars,
-    activeCalendarHref: state.activeCalendarHref,
-    categoryOrder: state.categoryOrder,
-  });
+  var record = {
+    calendars: sanitizeCalendars(state.calendars),
+    categoryOrder: Array.isArray(state.categoryOrder) ? state.categoryOrder.slice() : [],
+  };
+  if (state.activeCalendarHref) {
+    record.activeCalendarHref = String(state.activeCalendarHref);
+  }
+  writeDataFile(fs, LISTS_INDEX_FILE, record);
 }
 
 function readListStore(fs, calendarHref) {
   if (!calendarHref) return null;
-  var data = readJsonFile(fs, getListCacheFilename(calendarHref));
+  var data = readDataFile(fs, getListCacheFilename(calendarHref), "cbor");
+  if (!data) {
+    data = readDataFile(fs, getLegacyListCacheFilename(calendarHref), "json");
+  }
   if (!data) return null;
   return {
     calendarHref: data.calendarHref || calendarHref,
@@ -120,16 +170,37 @@ function readListStore(fs, calendarHref) {
 
 function writeListStore(fs, calendarHref, tasks, pending, lastSyncedAt, categoryOrder) {
   if (!calendarHref) return;
-  var record = {
-    calendarHref: calendarHref,
-    tasks: tasks,
-    pending: pending,
-    lastSyncedAt: lastSyncedAt,
-  };
-  if (Array.isArray(categoryOrder)) {
-    record.categoryOrder = categoryOrder;
+  var cleanTasks = [];
+  if (Array.isArray(tasks)) {
+    for (var i = 0; i < tasks.length; i++) {
+      cleanTasks.push(sanitizeCompactTask(tasks[i]));
+    }
   }
-  writeJsonFile(fs, getListCacheFilename(calendarHref), record);
+  var cleanPending = [];
+  if (Array.isArray(pending)) {
+    for (var j = 0; j < pending.length; j++) {
+      var p = pending[j];
+      if (p && p.uid) {
+        cleanPending.push({
+          uid: String(p.uid),
+          completed: Boolean(p.completed),
+          updatedAt: typeof p.updatedAt === "number" ? p.updatedAt : 0,
+        });
+      }
+    }
+  }
+  var record = {
+    calendarHref: String(calendarHref),
+    tasks: cleanTasks,
+    pending: cleanPending,
+  };
+  if (typeof lastSyncedAt === "number" && !isNaN(lastSyncedAt)) {
+    record.lastSyncedAt = lastSyncedAt;
+  }
+  if (Array.isArray(categoryOrder)) {
+    record.categoryOrder = categoryOrder.slice();
+  }
+  writeDataFile(fs, getListCacheFilename(calendarHref), record);
 }
 
 function getCategoryLabel(task) {
@@ -147,8 +218,8 @@ function getCategoryLabel(task) {
  *   so pressing the Versa 2 hardware Back button from a task list exits the app
  *   while remembering the selected list, and pressing Back inside the Lists
  *   sub-view returns to the remembered list
- * - Local File Storage (`fs`) persistence for the list catalog (`tasker-lists.json`)
- *   and each loaded list's contents & unsynced toggles (`tasker-list-<hash>.json`)
+ * - Local File Storage (`fs`, CBOR encoding) persistence for the list catalog (`t-lists.cbor`)
+ *   and each loaded list's contents & unsynced toggles (`t-<hash>.cbor`)
  * - Immediate render from stored `fs` cache on restart while syncing in background
  * - Timestamp-aware reconciliation (`reconcileWatchTasks`) where newer server edits win
  */

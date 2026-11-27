@@ -134,7 +134,7 @@ This document tracks all planned work towards building the complete tasker ecosy
 - [x] Implement Watch App (`fitbit/app/watch-app.js` + `fitbit/app/index.js`) using `@tasker/core/watch`:
   - [x] Use the remembered task list as the top-level view (hardware Back exits cleanly) with a compact (`58px` tile) **Lists** sub-view to switch between available VTODO lists
   - [x] Render tasks sorted by category with category labels on Versa 2 (`300×300` screen)
-  - [x] Persist list catalog (`tasker-lists.json`) and per-list contents + pending local toggles (`tasker-list-<id>.json`) via Fitbit File Storage (`fs`) so restarts immediately render the cached list while syncing in the background
+  - [x] Persist list catalog (`t-lists.cbor`) and per-list contents + pending local toggles (`t-<hash>.cbor`) via Fitbit File Storage (`fs`, named imports + CBOR encoding) so restarts immediately render the cached list while syncing in the background
   - [x] Timestamp-aware watch reconciliation (`reconcileWatchTasks`): prefer newer/equal server edits over older unsynced watch toggles, while syncing strictly newer unsynced watch toggles back to CalDAV
   - [x] Instant O(1) checkbox toggle on watch (cached DOM handles, debounced `fs` write + `unload` flush, deferred sync to CalDAV on next sync) and clipped list viewports painted beneath the header
 

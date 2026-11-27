@@ -324,14 +324,32 @@ function createBrowserFitbitDocument(
   };
 }
 
+const VALID_FITBIT_FS_ENCODINGS = new Set(['cbor', 'json', 'utf-8', 'ascii']);
+
 const fitbitFs = {
-  readFileSync(filename: string) {
+  readFileSync(filename: string, encoding?: string) {
+    if (!encoding || !VALID_FITBIT_FS_ENCODINGS.has(encoding)) {
+      throw new Error(`Invalid Fitbit fs encoding: ${String(encoding)}`);
+    }
     const raw = localStorage.getItem(FS_PREFIX + filename);
     if (raw === null) throw new Error(`ENOENT: ${filename}`);
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw) as { encoding?: string; data?: unknown };
+    if (parsed && typeof parsed === 'object' && 'encoding' in parsed && 'data' in parsed) {
+      if (parsed.encoding !== encoding) {
+        throw new Error(`Encoding mismatch reading ${filename}: expected ${parsed.encoding}, got ${encoding}`);
+      }
+      return parsed.data;
+    }
+    return parsed;
   },
-  writeFileSync(filename: string, data: unknown) {
-    localStorage.setItem(FS_PREFIX + filename, JSON.stringify(data));
+  writeFileSync(filename: string, data: unknown, encoding?: string) {
+    if (!encoding || !VALID_FITBIT_FS_ENCODINGS.has(encoding)) {
+      throw new Error(`Invalid Fitbit fs encoding: ${String(encoding)}`);
+    }
+    if (!filename || filename.startsWith('/') || filename.length > 24) {
+      throw new Error(`Unsafe Fitbit fs filename: ${filename}`);
+    }
+    localStorage.setItem(FS_PREFIX + filename, JSON.stringify({ encoding, data }));
   },
 };
 
@@ -419,7 +437,7 @@ window.__fitbitHarness = {
   },
   readFsFile(filename: string) {
     try {
-      return fitbitFs.readFileSync(filename);
+      return fitbitFs.readFileSync(filename, filename.endsWith('.json') ? 'json' : 'cbor');
     } catch {
       return null;
     }

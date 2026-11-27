@@ -361,19 +361,19 @@ interface CompactTask {
 
 ### Watch-side Multi-List Storage and Timestamp Reconciliation
 
-The watch persists both the list catalog and each loaded list's tasks + unsynced local toggles using the **Fitbit File Storage API** (`fs.writeFileSync` / `fs.readFileSync`):
+The watch persists both the list catalog and each loaded list's tasks + unsynced local toggles using the **Fitbit File Storage API** (`fs.writeFileSync` / `fs.readFileSync` with native `"cbor"` encoding and direct named `fs` imports so `@fitbit/sdk` Rollup avoids `_interopNamespace` wrappers on JerryScript native modules):
 
-- `tasker-lists.json` — stores `{ calendars, activeCalendarHref, categoryOrder }`.
-- `tasker-list-<hash>.json` — one file per loaded calendar storing `{ calendarHref, tasks, pending, lastSyncedAt }`, where `pending` records unsynced local toggles `{ uid, completed, updatedAt }`.
+- `t-lists.cbor` — stores `{ calendars, activeCalendarHref, categoryOrder }` (with read fallback for legacy `tasker-lists.json` / `tasker-cache.json`).
+- `t-<hash>.cbor` — one short 15-character file per loaded calendar storing `{ calendarHref, tasks, pending, lastSyncedAt, categoryOrder }`, where `pending` records unsynced local toggles `{ uid, completed, updatedAt }`.
 
 On startup:
-1. Immediately read `tasker-lists.json` (and the remembered list's `tasker-list-<hash>.json`) and render the top-level task list right away before Bluetooth finishes connecting.
+1. Immediately read `t-lists.cbor` (and the remembered list's `t-<hash>.cbor`) and render the top-level task list right away before Bluetooth finishes connecting.
 2. In the background once connected, send `FETCH_TASKS` for the remembered list (only sending `FETCH_LISTS` when the list catalog is empty or the user opens the Lists sub-view).
 3. When `TASKS_PAYLOAD` / `TASKS_CHUNK` arrives, run `reconcileWatchTasks(serverTasks, pending)` from `@tasker/core/watch`:
    - If the server's `lastModified >= pending.updatedAt`, **the newer server change wins** — the watch updates its display to the server's state and discards the stale pending toggle.
    - If the local watch toggle is strictly newer (`pending.updatedAt > server.lastModified`, or server has no `lastModified`), the watch preserves its local toggle and pushes `UPDATE_TASK` (carrying `updatedAt`) to the Companion.
    - Tasks deleted on the server are pruned along with any pending toggles for them.
-4. The selected task list is the **top-level view**: pressing the Versa 2 hardware Back button exits the watch app cleanly while preserving `activeCalendarHref` in `tasker-lists.json`. Tapping the header **Lists** button opens the **Lists sub-view** (`58px` compact tiles so multiple lists are visible at once); tapping **Back** or pressing the hardware Back button inside the Lists sub-view returns to the remembered task list.
+4. The selected task list is the **top-level view**: pressing the Versa 2 hardware Back button exits the watch app cleanly while preserving `activeCalendarHref` in `t-lists.cbor`. Tapping the header **Lists** button opens the **Lists sub-view** (`58px` compact tiles so multiple lists are visible at once); tapping **Back** or pressing the hardware Back button inside the Lists sub-view returns to the remembered task list.
 
 ---
 
