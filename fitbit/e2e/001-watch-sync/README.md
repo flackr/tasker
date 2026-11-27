@@ -12,23 +12,23 @@ As a Versa 2 user, I want to pick between my CalDAV task lists, check off items 
 
 ---
 
-## Selecting Shopping opens the top-level list view sorted by category (Produce → Bakery → Dairy); hardware Back exits cleanly
+## Selecting Shopping slides to the top-level Tasks page with short category headers (Produce → Bakery → Dairy), large-font task items, slim 28px status bar, and scrolled past the pull-down Sync tile
 
-![Selecting Shopping opens the top-level list view sorted by category (Produce → Bakery → Dairy); hardware Back exits cleanly](./screenshots/001-initial-sync.png)
+![Selecting Shopping slides to the top-level Tasks page with short category headers (Produce → Bakery → Dairy), large-font task items, slim 28px status bar, and scrolled past the pull-down Sync tile](./screenshots/001-initial-sync.png)
 
 **Verifications:**
-- [x] Lists sub-view button is visible and status shows 3 left
+- [x] Slim status bar shows 3 left with Lists › hint and list starts scrolled past row 0 Sync tile
 - [x] Pressing Versa 2 hardware Back from top-level task list does not hijack exit or forget the selected list
-- [x] Items appear in category order: Apples, Sourdough, Milk
+- [x] Category headers and large-font tasks appear in order: Produce/Apples, Bakery/Sourdough, Dairy/Milk
 
 ---
 
-## Tapping Apples toggles instantly on the watch and persists COMPLETED losslessly to CalDAV on the next sync
+## Tapping Apples toggles instantly on the watch; pulling down and tapping the full-width Sync tile persists COMPLETED losslessly to CalDAV
 
-![Tapping Apples toggles instantly on the watch and persists COMPLETED losslessly to CalDAV on the next sync](./screenshots/002-toggled-online.png)
+![Tapping Apples toggles instantly on the watch; pulling down and tapping the full-width Sync tile persists COMPLETED losslessly to CalDAV](./screenshots/002-toggled-online.png)
 
 **Verifications:**
-- [x] Apples tile is checked and status updates to 2 left
+- [x] Apples tile is checked, status updates to 2 left, and list scrolls back past Sync tile
 - [x] Mock CalDAV server persisted COMPLETED and preserved X-PRESERVE
 
 ---
@@ -53,12 +53,12 @@ As a Versa 2 user, I want to pick between my CalDAV task lists, check off items 
 
 ---
 
-## User opens the Lists sub-view and switches to the Hardware list
+## User swipes from the right to the Lists page and switches to the Hardware list
 
-![User opens the Lists sub-view and switches to the Hardware list](./screenshots/005-switched-list.png)
+![User swipes from the right to the Lists page and switches to the Hardware list](./screenshots/005-switched-list.png)
 
 **Verifications:**
-- [x] Hardware list task Wood Screws is displayed
+- [x] Hardware list category Fasteners and task Wood Screws are displayed
 
 ---
 

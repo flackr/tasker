@@ -211,15 +211,65 @@ function getCategoryLabel(task) {
 }
 
 /**
+ * Builds the flat virtual-tile row list for the Tasks VirtualTileList:
+ * - Row 0: pull-down full-width Sync tile (scrolled past by default via value=1)
+ * - Row 1: 28px spacer aligning row 2 cleanly beneath the 28px sticky status bar
+ * - Rows 2+: short category header tiles interleaved before each category group,
+ *   followed by large-font single-line task tiles.
+ */
+export function buildTaskRows(items) {
+  var rows = [{ type: "sync-pool" }, { type: "spacer-pool" }];
+  if (!Array.isArray(items) || items.length === 0) {
+    return rows;
+  }
+
+  var hasAnyCategory = false;
+  for (var i = 0; i < items.length; i++) {
+    if (getCategoryLabel(items[i])) {
+      hasAnyCategory = true;
+      break;
+    }
+  }
+
+  var lastCategory = null;
+  for (var j = 0; j < items.length; j++) {
+    var cat = getCategoryLabel(items[j]);
+    if (hasAnyCategory) {
+      var headerLabel = cat || "Uncategorized";
+      if (headerLabel !== lastCategory) {
+        rows.push({ type: "category-pool", category: headerLabel });
+        lastCategory = headerLabel;
+      }
+    }
+    rows.push({ type: "item-pool", taskIndex: j });
+  }
+  return rows;
+}
+
+function buildListRows(calendars) {
+  var rows = [{ type: "lists-sync-pool" }, { type: "lists-spacer-pool" }];
+  if (!Array.isArray(calendars)) {
+    return rows;
+  }
+  for (var i = 0; i < calendars.length; i++) {
+    rows.push({ type: "list-pool", listIndex: i });
+  }
+  return rows;
+}
+
+/**
  * Creates the Fitbit Versa 2 Watch App controller (ES5-safe).
  *
  * Features:
- * - Top-level selected task list ('tasks' view) with a 'Lists' sub-view ('lists')
- *   so pressing the Versa 2 hardware Back button from a task list exits the app
- *   while remembering the selected list, and pressing Back inside the Lists
- *   sub-view returns to the remembered list
- * - Local File Storage (`fs`, CBOR encoding) persistence for the list catalog (`t-lists.cbor`)
- *   and each loaded list's contents & unsynced toggles (`t-<hash>.cbor`)
+ * - Native `#panoramaview` horizontal navigation: Page 0 = active task list,
+ *   Page 1 = Lists picker (swipe from the right to switch lists, hardware Back
+ *   from Page 1 returns to Page 0, hardware Back from Page 0 exits cleanly)
+ * - Slim 28px status-only header bar
+ * - Virtual `#tile-list` with a pull-down full-width Sync tile at row 0 (started
+ *   scrolled past via `value = 1`), compact 32px category section headers, and
+ *   large-font (28px) single-line task tiles
+ * - Local File Storage (`fs`, CBOR encoding) persistence for the list catalog
+ *   (`t-lists.cbor`) and per-list tasks & unsynced toggles (`t-<hash>.cbor`)
  * - Immediate render from stored `fs` cache on restart while syncing in background
  * - Timestamp-aware reconciliation (`reconcileWatchTasks`) where newer server edits win
  */
@@ -232,21 +282,20 @@ export function createWatchApp(options) {
   var persistDelayMs = typeof options.persistDelayMs === "number" ? options.persistDelayMs : 0;
 
   var statusEl = doc.getElementById("status");
-  var syncBtn = doc.getElementById("sync-btn");
-  var backBtn = doc.getElementById("back-btn");
-  var backBtnLabel = doc.getElementById("back-btn-label");
-  var listsViewEl = doc.getElementById("lists-view");
-  var tasksViewEl = doc.getElementById("tasks-view");
+  var pageHintEl = doc.getElementById("page-hint");
+  var containerEl = doc.getElementById("container");
+  var checklistEl = doc.getElementById("checklist");
+  var listsChecklistEl = doc.getElementById("lists-checklist");
   var reassembler = createChunkReassembler();
 
-  var listTileRefs = [];
-  var taskTileRefs = [];
-  var tilesInitialized = false;
+  var taskRows = buildTaskRows([]);
+  var listRows = buildListRows([]);
+  var delegatesInitialized = false;
   var persistTimer = null;
   var dirtyActiveList = false;
 
   var state = {
-    view: "lists", // "tasks" (top-level) | "lists" (sub-view)
+    view: "lists", // "tasks" (page 0) | "lists" (page 1)
     calendars: [],
     activeCalendarHref: undefined,
     items: [],
@@ -259,79 +308,14 @@ export function createWatchApp(options) {
     error: "",
   };
 
-  function initTileRefs() {
-    if (tilesInitialized) return;
-    tilesInitialized = true;
-
-    for (var i = 0; ; i++) {
-      var listTile = doc.getElementById("list-item-" + i);
-      if (!listTile) break;
-      var listTileList = listTile.getElementById("list-tile-list");
-      var touchEl = listTile.getElementById("list-touch") || listTileList;
-      listTileRefs.push({
-        tileList: listTileList,
-        titleEl: listTile.getElementById("list-title"),
-        subEl: listTile.getElementById("list-subtitle"),
-        touchEl: touchEl,
-        visible: null,
-        title: null,
-        subtitle: null,
-      });
-      (function (index) {
-        touchEl.onclick = function () {
-          if (state.calendars[index]) {
-            selectList(state.calendars[index].href);
-          }
-        };
-      })(i);
+  function applyTaskCompletedUI(tile, completed) {
+    var titleEl = tile.getElementById("task-title");
+    var checkboxCheck = tile.getElementById("checkbox-check");
+    if (checkboxCheck && checkboxCheck.style) {
+      checkboxCheck.style.display = completed ? "inline" : "none";
     }
-
-    for (var j = 0; ; j++) {
-      var taskTile = doc.getElementById("item-" + j);
-      if (!taskTile) break;
-      var taskTileList = taskTile.getElementById("task-tile-list");
-      var taskTouch = taskTile.getElementById("task-touch");
-      var taskTitle = taskTile.getElementById("task-title");
-      var checkboxCheck = taskTile.getElementById("checkbox-check");
-      var legacyCheckbox = taskTile.getElementById("task-checkbox");
-      var clickTarget = taskTouch || legacyCheckbox || taskTileList;
-      taskTileRefs.push({
-        tileList: taskTileList,
-        titleEl: taskTitle,
-        checkboxCheck: checkboxCheck,
-        checkbox: legacyCheckbox,
-        categoryEl: taskTile.getElementById("item-category"),
-        visible: null,
-        summary: null,
-        completed: null,
-        category: null,
-      });
-      if (clickTarget) {
-        (function (index) {
-          clickTarget.onclick = function () {
-            toggleTask(index);
-          };
-        })(j);
-      }
-    }
-  }
-
-  function applyTaskSummaryUI(ref, summary) {
-    if (ref.titleEl) {
-      ref.titleEl.text = summary;
-    } else if (ref.checkbox) {
-      ref.checkbox.text = summary;
-    }
-  }
-
-  function applyTaskCompletedUI(ref, completed) {
-    if (ref.checkboxCheck) {
-      ref.checkboxCheck.style.display = completed ? "inline" : "none";
-      if (ref.titleEl && ref.titleEl.style) {
-        ref.titleEl.style.fill = completed ? "#9ca3af" : "#ffffff";
-      }
-    } else if (ref.checkbox) {
-      ref.checkbox.value = completed ? 1 : 0;
+    if (titleEl && titleEl.style) {
+      titleEl.style.fill = completed ? "#9ca3af" : "#ffffff";
     }
   }
 
@@ -409,92 +393,184 @@ export function createWatchApp(options) {
     return remaining === 0 ? "All done!" : remaining + " left";
   }
 
-  function renderListsView() {
-    initTileRefs();
-    for (var i = 0; i < listTileRefs.length; i++) {
-      var ref = listTileRefs[i];
-      if (state.calendars.length <= i) {
-        if (ref.visible !== false) {
-          ref.tileList.style.display = "none";
-          ref.visible = false;
-        }
-        continue;
-      }
-      if (ref.visible !== true) {
-        ref.tileList.style.display = "inline";
-        ref.visible = true;
-      }
-      var cal = state.calendars[i];
-      var sub = computeListSubtitle(cal.href);
-      if (ref.titleEl && ref.title !== cal.displayName) {
-        ref.titleEl.text = cal.displayName;
-        ref.title = cal.displayName;
-      }
-      if (ref.subEl && ref.subtitle !== sub) {
-        ref.subEl.text = sub;
-        ref.subtitle = sub;
-      }
-    }
-  }
-
-  function renderTasksView() {
-    initTileRefs();
-    for (var i = 0; i < taskTileRefs.length; i++) {
-      var ref = taskTileRefs[i];
-      if (state.items.length <= i) {
-        if (ref.visible !== false) {
-          ref.tileList.style.display = "none";
-          ref.visible = false;
-        }
-        continue;
-      }
-      if (ref.visible !== true) {
-        ref.tileList.style.display = "inline";
-        ref.visible = true;
-      }
-      var item = state.items[i];
-      var cat = getCategoryLabel(item);
-      if (ref.summary !== item.summary) {
-        applyTaskSummaryUI(ref, item.summary);
-        ref.summary = item.summary;
-      }
-      if (ref.completed !== item.completed) {
-        applyTaskCompletedUI(ref, item.completed);
-        ref.completed = item.completed;
-      }
-      if (ref.categoryEl && ref.category !== cat) {
-        ref.categoryEl.text = cat;
-        ref.category = cat;
-      }
-    }
-  }
-
-  function render() {
-    var inTasksView = state.view === "tasks";
-    var showNavBtn = inTasksView || Boolean(state.activeCalendarHref);
-
-    if (listsViewEl) {
-      listsViewEl.style.display = inTasksView ? "none" : "inline";
-    }
-    if (tasksViewEl) {
-      tasksViewEl.style.display = inTasksView ? "inline" : "none";
-    }
-    if (backBtn) {
-      backBtn.style.display = showNavBtn ? "inline" : "none";
-    }
-    if (backBtnLabel) {
-      backBtnLabel.style.display = showNavBtn ? "inline" : "none";
-      backBtnLabel.text = inTasksView ? "Lists" : "Back";
-    }
+  function renderHeader() {
     if (statusEl) {
       statusEl.text = computeStatusText();
     }
-
-    if (inTasksView) {
-      renderTasksView();
-    } else {
-      renderListsView();
+    if (pageHintEl) {
+      if (state.view === "tasks") {
+        pageHintEl.text = "Lists ›";
+      } else {
+        pageHintEl.text = state.activeCalendarHref ? "‹ Tasks" : "";
+      }
     }
+  }
+
+  function syncPanoramaPage() {
+    if (!containerEl) return;
+    var desired = state.view === "tasks" ? 0 : 1;
+    if (containerEl.value !== desired) {
+      containerEl.value = desired;
+    }
+  }
+
+  function handlePanoramaChange() {
+    if (!containerEl) return;
+    var page = containerEl.value;
+    if (page === 1 && state.view !== "lists") {
+      flushPersistence();
+      state.view = "lists";
+      state.error = "";
+      renderListsView(false);
+      renderHeader();
+    } else if (page === 0 && state.view !== "tasks") {
+      state.view = "tasks";
+      state.error = "";
+      renderHeader();
+    }
+  }
+
+  function initDelegates() {
+    if (delegatesInitialized) return;
+    delegatesInitialized = true;
+
+    if (containerEl) {
+      if (typeof containerEl.addEventListener === "function") {
+        containerEl.addEventListener("select", handlePanoramaChange);
+        containerEl.addEventListener("change", handlePanoramaChange);
+      }
+      containerEl.onvaluechange = handlePanoramaChange;
+    }
+
+    if (checklistEl) {
+      checklistEl.delegate = {
+        getTileInfo: function (index) {
+          var row = taskRows[index];
+          if (!row) return { type: "spacer-pool", index: index };
+          if (row.type === "category-pool") {
+            return { type: "category-pool", category: row.category, index: index };
+          }
+          if (row.type === "item-pool") {
+            return { type: "item-pool", taskIndex: row.taskIndex, index: index };
+          }
+          return { type: row.type, index: index };
+        },
+        configureTile: function (tile, info) {
+          if (info.type === "sync-pool") {
+            var labelEl = tile.getElementById("sync-label");
+            if (labelEl) {
+              labelEl.text = state.syncing ? "Syncing..." : "Sync Now";
+            }
+            var syncTouch = tile.getElementById("sync-touch");
+            if (syncTouch) {
+              syncTouch.onclick = function () {
+                requestSync();
+              };
+            }
+          } else if (info.type === "category-pool") {
+            var catEl = tile.getElementById("category-title");
+            if (catEl) {
+              catEl.text = info.category || "";
+            }
+          } else if (info.type === "item-pool") {
+            var item = state.items[info.taskIndex];
+            if (!item) return;
+            var titleEl = tile.getElementById("task-title");
+            if (titleEl) {
+              titleEl.text = item.summary;
+            }
+            applyTaskCompletedUI(tile, item.completed);
+            tile.__taskIndex = info.taskIndex;
+            var touchEl = tile.getElementById("task-touch");
+            if (touchEl) {
+              touchEl.onclick = function () {
+                toggleTask(tile.__taskIndex, tile);
+              };
+            }
+          }
+        },
+      };
+    }
+
+    if (listsChecklistEl) {
+      listsChecklistEl.delegate = {
+        getTileInfo: function (index) {
+          var row = listRows[index];
+          if (!row) return { type: "lists-spacer-pool", index: index };
+          if (row.type === "list-pool") {
+            return { type: "list-pool", listIndex: row.listIndex, index: index };
+          }
+          return { type: row.type, index: index };
+        },
+        configureTile: function (tile, info) {
+          if (info.type === "lists-sync-pool") {
+            var labelEl = tile.getElementById("sync-label");
+            if (labelEl) {
+              labelEl.text = state.syncing ? "Syncing..." : "Sync Lists";
+            }
+            var syncTouch = tile.getElementById("sync-touch");
+            if (syncTouch) {
+              syncTouch.onclick = function () {
+                requestSync();
+              };
+            }
+          } else if (info.type === "list-pool") {
+            var cal = state.calendars[info.listIndex];
+            if (!cal) return;
+            var titleEl = tile.getElementById("list-title");
+            var subEl = tile.getElementById("list-subtitle");
+            if (titleEl) {
+              titleEl.text = cal.displayName;
+            }
+            if (subEl) {
+              subEl.text = computeListSubtitle(cal.href);
+            }
+            tile.__listHref = cal.href;
+            var touchEl = tile.getElementById("list-touch");
+            if (touchEl) {
+              touchEl.onclick = function () {
+                if (tile.__listHref) {
+                  selectList(tile.__listHref);
+                }
+              };
+            }
+          }
+        },
+      };
+    }
+  }
+
+  function renderTasksView(resetScroll) {
+    initDelegates();
+    taskRows = buildTaskRows(state.items);
+    if (checklistEl) {
+      checklistEl.length = taskRows.length;
+      if (resetScroll) {
+        // Start scrolled past row 0 (Sync tile) so row 1 (28px spacer) aligns
+        // row 2 cleanly below the 28px status bar. When empty, leave Sync visible.
+        checklistEl.value = state.items.length > 0 ? 1 : 0;
+      }
+    }
+  }
+
+  function renderListsView(resetScroll) {
+    initDelegates();
+    listRows = buildListRows(state.calendars);
+    if (listsChecklistEl) {
+      listsChecklistEl.length = listRows.length;
+      if (resetScroll) {
+        listsChecklistEl.value = state.calendars.length > 0 ? 1 : 0;
+      }
+    }
+  }
+
+  function render(options) {
+    var resetTasksScroll = Boolean(options && options.resetTasksScroll);
+    var resetListsScroll = Boolean(options && options.resetListsScroll);
+    syncPanoramaPage();
+    renderHeader();
+    renderTasksView(resetTasksScroll);
+    renderListsView(resetListsScroll);
   }
 
   function persistIndex() {
@@ -578,16 +654,17 @@ export function createWatchApp(options) {
 
     if (isConnectedFn()) {
       state.syncing = true;
-      render();
+      render({ resetTasksScroll: true });
       send({ type: "FETCH_TASKS", calendarHref: calendarHref });
     } else {
       state.syncing = false;
-      render();
+      render({ resetTasksScroll: true });
     }
   }
 
   function openListsView() {
     if (state.view === "lists") {
+      syncPanoramaPage();
       return;
     }
     flushPersistence();
@@ -595,27 +672,29 @@ export function createWatchApp(options) {
     state.error = "";
     if (isConnectedFn()) {
       state.syncing = true;
-      render();
+      render({ resetListsScroll: true });
       send({ type: "FETCH_LISTS" });
     } else {
       state.syncing = false;
-      render();
+      render({ resetListsScroll: true });
     }
   }
 
   function goBack() {
-    if (state.view === "lists" && state.activeCalendarHref) {
+    var onListsPage = containerEl ? containerEl.value === 1 : state.view === "lists";
+    if (onListsPage && state.activeCalendarHref) {
       state.view = "tasks";
       state.syncing = false;
       state.error = "";
-      render();
+      syncPanoramaPage();
+      renderHeader();
       return true;
     }
     return false;
   }
 
-  function toggleTask(idx) {
-    if (state.view !== "tasks" || idx < 0 || idx >= state.items.length) return;
+  function toggleTask(idx, tileEl) {
+    if (idx < 0 || idx >= state.items.length) return;
     var target = state.items[idx];
     var nextCompleted = !target.completed;
     var timestamp = nowFn();
@@ -631,17 +710,14 @@ export function createWatchApp(options) {
     state.syncingPending = false;
     state.error = "";
 
-    // Instant O(1) update of only the tapped tile and header status —
-    // no 50-tile loop and no blocking Bluetooth round-trip on tap.
-    // The recorded { uid, completed, updatedAt } entry is pushed on the next sync.
-    var ref = taskTileRefs[idx];
-    if (ref) {
-      ref.completed = nextCompleted;
-      applyTaskCompletedUI(ref, nextCompleted);
+    // Instant O(1) update of only the tapped tile and status bar —
+    // no VirtualTileList length reset, no scroll jump, and no blocking BLE round-trip.
+    if (tileEl) {
+      applyTaskCompletedUI(tileEl, nextCompleted);
+    } else {
+      renderTasksView(false);
     }
-    if (statusEl) {
-      statusEl.text = computeStatusText();
-    }
+    renderHeader();
 
     schedulePersistActiveList();
   }
@@ -652,17 +728,19 @@ export function createWatchApp(options) {
     if (!isConnectedFn()) {
       state.syncing = false;
       state.syncingPending = false;
-      render();
+      render({
+        resetTasksScroll: state.items.length > 0,
+        resetListsScroll: state.calendars.length > 0,
+      });
       return;
     }
 
     state.syncing = true;
-    render();
+    renderHeader();
 
-    // When already viewing a remembered list, pull its task updates immediately
-    // while keeping the cached list displayed; only fetch lists if we don't have
-    // the catalog yet or are inside the Lists sub-view.
-    if (state.view === "tasks" && state.activeCalendarHref) {
+    var onTasksPage = containerEl ? containerEl.value === 0 : state.view === "tasks";
+    if (onTasksPage && state.activeCalendarHref) {
+      state.view = "tasks";
       send({ type: "FETCH_TASKS", calendarHref: state.activeCalendarHref });
       if (state.calendars.length === 0) {
         send({ type: "FETCH_LISTS" });
@@ -713,7 +791,7 @@ export function createWatchApp(options) {
         state.syncing = false;
       }
       persistIndex();
-      render();
+      render({ resetListsScroll: true });
     } else if (data.type === "TASKS_PAYLOAD" || data.type === "TASKS_CHUNK") {
       var payload = reassembler.accept(data);
       if (!payload) return;
@@ -746,7 +824,7 @@ export function createWatchApp(options) {
         state.lastSyncedAt = syncedAt;
       }
 
-      render();
+      render({ resetTasksScroll: isActive });
 
       // Push only local pending toggles that survived timestamp reconciliation (newer than server)
       if (reconciled.togglesToSync.length > 0) {
@@ -769,7 +847,7 @@ export function createWatchApp(options) {
         }
         state.error = "";
         persistActiveList();
-        render();
+        render({ resetTasksScroll: false });
       } else if (ackHref) {
         var other = readListStore(fs, ackHref);
         if (other) {
@@ -787,16 +865,14 @@ export function createWatchApp(options) {
             other.lastSyncedAt,
             other.categoryOrder,
           );
-          if (state.view === "lists") {
-            render();
-          }
+          renderListsView(false);
         }
       }
     } else if (data.type === "ERROR") {
       state.syncing = false;
       state.syncingPending = false;
       state.error = data.message || "Sync failed";
-      render();
+      renderHeader();
     }
   }
 
@@ -806,26 +882,12 @@ export function createWatchApp(options) {
     } else {
       state.syncing = false;
       state.syncingPending = false;
-      render();
+      renderHeader();
     }
   }
 
   function start() {
-    initTileRefs();
-    if (syncBtn) {
-      syncBtn.onclick = function () {
-        requestSync();
-      };
-    }
-    if (backBtn) {
-      backBtn.onclick = function () {
-        if (state.view === "tasks") {
-          openListsView();
-        } else {
-          goBack();
-        }
-      };
-    }
+    initDelegates();
 
     // Immediately restore cached list catalog and last-opened list from Fitbit File Storage
     var index = readListsIndex(fs);
@@ -847,8 +909,8 @@ export function createWatchApp(options) {
       }
     }
 
-    // Render cached UI immediately, then sync changes in the background
-    render();
+    // Render cached UI immediately (scrolled past row 0 Sync tile), then sync in background
+    render({ resetTasksScroll: true, resetListsScroll: true });
     requestSync();
   }
 
@@ -872,6 +934,7 @@ export function createWatchApp(options) {
         items: state.items.slice(),
         pending: state.pending.slice(),
         categoryOrder: getEffectiveCategoryOrder().slice(),
+        taskRows: taskRows.slice(),
         status: computeStatusText(),
       };
     },

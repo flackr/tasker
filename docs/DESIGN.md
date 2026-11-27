@@ -373,7 +373,7 @@ On startup:
    - If the server's `lastModified >= pending.updatedAt`, **the newer server change wins** — the watch updates its display to the server's state and discards the stale pending toggle.
    - If the local watch toggle is strictly newer (`pending.updatedAt > server.lastModified`, or server has no `lastModified`), the watch preserves its local toggle and pushes `UPDATE_TASK` (carrying `updatedAt`) to the Companion.
    - Tasks deleted on the server are pruned along with any pending toggles for them.
-4. The selected task list is the **top-level view**: pressing the Versa 2 hardware Back button exits the watch app cleanly while preserving `activeCalendarHref` in `t-lists.cbor`. Tapping the header **Lists** button opens the **Lists sub-view** (`58px` compact tiles so multiple lists are visible at once); tapping **Back** or pressing the hardware Back button inside the Lists sub-view returns to the remembered task list.
+4. The selected task list is **Page 0** of a native Fitbit OS 4 `#panoramaview` (`panoramaview_widget.gui`): pressing the Versa 2 hardware Back button exits the watch app cleanly while preserving `activeCalendarHref` in `t-lists.cbor`. Swiping from the right slides smoothly to **Page 1** (the **Lists** picker); swiping back, tapping a list, or pressing hardware Back returns to Page 0. Both lists use a Virtual `#tile-list` (`<var id="virtual" value="1" />`) with a full-width pull-down **Sync** tile at row `0` (started scrolled past via `value = 1`), a `28px` spacer at row `1` matching the slim `28px` status-only top bar, compact `32px` category header tiles grouping items without repeating the category on every row, and large `28px`-font single-line task tiles (`56px` height).
 
 ---
 

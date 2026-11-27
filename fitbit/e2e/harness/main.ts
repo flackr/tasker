@@ -1,4 +1,5 @@
 import '@fontsource/inter/latin-400.css';
+import '@fontsource/inter/latin-500.css';
 import '@fontsource/inter/latin-600.css';
 import '@fontsource/inter/latin-700.css';
 // @ts-expect-error raw Vite import of Fitbit GUI XML
@@ -13,6 +14,11 @@ interface HarnessApi {
   setFixedNow(epochMs: number | null): void;
   configureSettings(entries: Record<string, string>): void;
   pressHardwareBack(): boolean;
+  swipeToLists(): void;
+  swipeToTasks(): void;
+  pullToSync(): void;
+  getPanoramaValue(): number;
+  getTasksScrollValue(): number;
   getWatchState(): unknown;
   listFsFiles(): string[];
   readFsFile(filename: string): unknown;
@@ -27,167 +33,55 @@ declare global {
 const FS_PREFIX = 'fitbit-fs:';
 const SETTINGS_PREFIX = 'fitbit-settings:';
 
-function extractIds(guiXml: string, prefix: string): string[] {
-  const ids: string[] = [];
-  const regex = new RegExp(`<use\\s+id="(${prefix}\\d+)"`, 'g');
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(guiXml)) !== null) {
-    ids.push(match[1]);
-  }
-  return ids;
+interface VirtualTileInfo {
+  type: string;
+  index?: number;
+  category?: string;
+  taskIndex?: number;
+  listIndex?: number;
 }
 
-function createBrowserFitbitDocument(
-  root: HTMLElement,
-  listTileIds: string[],
-  taskTileIds: string[],
-) {
-  root.innerHTML = `
-    <div class="watch-header">
-      <button id="back-btn" type="button" data-testid="watch-back-btn" style="display:none">Lists</button>
-      <div id="status" data-testid="watch-status">Loading...</div>
-      <button id="sync-btn" type="button" data-testid="watch-sync-btn">Sync</button>
-    </div>
-    <div id="lists-view" class="watch-view" data-testid="watch-lists-view"></div>
-    <div id="tasks-view" class="watch-view" data-testid="watch-tasks-view" style="display:none"></div>
-  `;
+interface VirtualTileDelegate {
+  getTileInfo(index: number): VirtualTileInfo;
+  configureTile(tile: unknown, info: VirtualTileInfo): void;
+}
 
-  const backDom = root.querySelector<HTMLButtonElement>('#back-btn')!;
-  const statusDom = root.querySelector<HTMLDivElement>('#status')!;
-  const syncDom = root.querySelector<HTMLButtonElement>('#sync-btn')!;
-  const listsViewDom = root.querySelector<HTMLDivElement>('#lists-view')!;
-  const tasksViewDom = root.querySelector<HTMLDivElement>('#tasks-view')!;
+function createBrowserVirtualTileList(containerDom: HTMLElement, listKind: 'tasks' | 'lists') {
+  let delegate: VirtualTileDelegate | null = null;
+  let length = 0;
+  let value = 0;
+  let rowElements: HTMLElement[] = [];
 
-  const statusEl = {
-    get text() {
-      return statusDom.textContent ?? '';
-    },
-    set text(val: string) {
-      statusDom.textContent = val;
-    },
-  };
+  function applyScrollValue(nextVal: number) {
+    value = Math.max(0, nextVal);
+    const targetRow = rowElements[value];
+    containerDom.scrollTop = targetRow ? targetRow.offsetTop : 0;
+  }
 
-  const syncBtnEl = {
-    set onclick(fn: (() => void) | null) {
-      syncDom.onclick = fn;
-    },
-  };
-
-  const backBtnEl = {
-    style: {
-      get display() {
-        return backDom.style.display;
-      },
-      set display(val: string) {
-        backDom.style.display = val === 'none' ? 'none' : 'inline-block';
-      },
-    },
-    set onclick(fn: (() => void) | null) {
-      backDom.onclick = fn;
-    },
-  };
-
-  const backBtnLabelEl = {
-    get text() {
-      return backDom.textContent ?? '';
-    },
-    set text(val: string) {
-      backDom.textContent = val;
-    },
-    style: {
-      get display() {
-        return backDom.style.display;
-      },
-      set display(val: string) {
-        backDom.style.display = val === 'none' ? 'none' : 'inline-block';
-      },
-    },
-  };
-
-  const listsViewEl = {
-    style: {
-      get display() {
-        return listsViewDom.style.display;
-      },
-      set display(val: string) {
-        listsViewDom.style.display = val === 'none' ? 'none' : 'block';
-      },
-    },
-  };
-
-  const tasksViewEl = {
-    style: {
-      get display() {
-        return tasksViewDom.style.display;
-      },
-      set display(val: string) {
-        tasksViewDom.style.display = val === 'none' ? 'none' : 'block';
-      },
-    },
-  };
-
-  const listTileMap = new Map<string, ReturnType<typeof makeListTile>>();
-  const taskTileMap = new Map<string, ReturnType<typeof makeTaskTile>>();
-
-  function makeListTile(id: string) {
+  function makeSyncTile(info: VirtualTileInfo) {
     const row = document.createElement('div');
-    row.className = 'watch-tile';
-    row.dataset.testid = `watch-${id}`;
-    row.style.display = 'none';
+    row.className = 'watch-sync-tile';
+    row.dataset.testid = listKind === 'tasks' ? 'watch-sync-tile' : 'watch-lists-sync-tile';
 
-    const textWrap = document.createElement('div');
-    textWrap.className = 'watch-tile-text';
-
-    const titleDom = document.createElement('div');
-    titleDom.className = 'watch-summary';
-
-    const subDom = document.createElement('div');
-    subDom.className = 'watch-category';
-
-    const chevron = document.createElement('div');
-    chevron.className = 'watch-chevron';
-    chevron.innerHTML =
-      '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3.5L10.5 8L6 12.5" stroke="#9ca3af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-
-    textWrap.append(titleDom, subDom);
-    row.append(textWrap, chevron);
-    listsViewDom.appendChild(row);
+    const pill = document.createElement('div');
+    pill.className = 'watch-sync-pill';
+    pill.textContent = listKind === 'tasks' ? 'Sync Now' : 'Sync Lists';
+    row.appendChild(pill);
 
     let clickHandler: (() => void) | null = null;
     row.addEventListener('click', () => {
       if (clickHandler) clickHandler();
     });
 
-    const tileList = {
-      style: {
-        get display() {
-          return row.style.display;
-        },
-        set display(val: string) {
-          row.style.display = val === 'none' ? 'none' : 'flex';
-        },
-      },
-    };
-
-    const title = {
+    const labelEl = {
       get text() {
-        return titleDom.textContent ?? '';
+        return pill.textContent ?? '';
       },
       set text(val: string) {
-        titleDom.textContent = val;
+        pill.textContent = val;
       },
     };
-
-    const subtitle = {
-      get text() {
-        return subDom.textContent ?? '';
-      },
-      set text(val: string) {
-        subDom.textContent = val;
-      },
-    };
-
-    const touch = {
+    const touchEl = {
       get onclick() {
         return clickHandler;
       },
@@ -196,57 +90,68 @@ function createBrowserFitbitDocument(
       },
     };
 
-    return {
-      getElementById(subId: string) {
-        if (subId === 'list-tile-list') return tileList;
-        if (subId === 'list-title') return title;
-        if (subId === 'list-subtitle') return subtitle;
-        if (subId === 'list-touch') return touch;
+    const tile = {
+      getElementById(id: string) {
+        if (id === 'sync-label') return labelEl;
+        if (id === 'sync-touch') return touchEl;
         return null;
       },
     };
+    delegate?.configureTile(tile, info);
+    return row;
   }
 
-  function makeTaskTile(id: string) {
+  function makeSpacerTile() {
     const row = document.createElement('div');
-    row.className = 'watch-tile';
-    row.dataset.testid = `watch-${id}`;
-    row.dataset.checked = '0';
-    row.style.display = 'none';
+    row.className = 'watch-spacer-tile';
+    row.dataset.testid = listKind === 'tasks' ? 'watch-tasks-spacer' : 'watch-lists-spacer';
+    return row;
+  }
 
-    const textWrap = document.createElement('div');
-    textWrap.className = 'watch-tile-text';
+  function makeCategoryHeaderTile(info: VirtualTileInfo, catIdx: number) {
+    const row = document.createElement('div');
+    row.className = 'watch-category-header';
+    row.dataset.testid = `watch-category-${catIdx}`;
+
+    const titleEl = {
+      get text() {
+        return row.textContent ?? '';
+      },
+      set text(val: string) {
+        row.textContent = val;
+        row.dataset.category = val;
+      },
+    };
+    const tile = {
+      getElementById(id: string) {
+        if (id === 'category-title') return titleEl;
+        return null;
+      },
+    };
+    delegate?.configureTile(tile, info);
+    return row;
+  }
+
+  function makeTaskTile(info: VirtualTileInfo) {
+    const row = document.createElement('div');
+    row.className = 'watch-task-tile';
+    row.dataset.testid = `watch-item-${info.taskIndex ?? 0}`;
+    row.dataset.checked = '0';
 
     const summaryEl = document.createElement('div');
-    summaryEl.className = 'watch-summary';
-
-    const categoryEl = document.createElement('div');
-    categoryEl.className = 'watch-category';
+    summaryEl.className = 'watch-task-summary';
 
     const boxEl = document.createElement('div');
     boxEl.className = 'watch-checkbox-box';
 
-    textWrap.append(summaryEl, categoryEl);
-    row.append(textWrap, boxEl);
-    tasksViewDom.appendChild(row);
+    row.append(summaryEl, boxEl);
 
     let clickHandler: (() => void) | null = null;
     row.addEventListener('click', () => {
       if (clickHandler) clickHandler();
     });
 
-    const tileList = {
-      style: {
-        get display() {
-          return row.style.display;
-        },
-        set display(val: string) {
-          row.style.display = val === 'none' ? 'none' : 'flex';
-        },
-      },
-    };
-
-    const title = {
+    const titleEl = {
       style: {
         get fill() {
           return summaryEl.style.color;
@@ -278,7 +183,7 @@ function createBrowserFitbitDocument(
       },
     };
 
-    const touch = {
+    const touchEl = {
       get onclick() {
         return clickHandler;
       },
@@ -287,40 +192,233 @@ function createBrowserFitbitDocument(
       },
     };
 
-    const category = {
-      get text() {
-        return categoryEl.textContent ?? '';
-      },
-      set text(val: string) {
-        categoryEl.textContent = val;
-      },
-    };
-
-    return {
-      getElementById(subId: string) {
-        if (subId === 'task-tile-list') return tileList;
-        if (subId === 'task-touch') return touch;
-        if (subId === 'task-title') return title;
-        if (subId === 'checkbox-check') return checkboxCheck;
-        if (subId === 'item-category') return category;
+    const tile = {
+      getElementById(id: string) {
+        if (id === 'task-title') return titleEl;
+        if (id === 'checkbox-check') return checkboxCheck;
+        if (id === 'task-touch') return touchEl;
         return null;
       },
     };
+    delegate?.configureTile(tile, info);
+    return row;
   }
 
-  for (const id of listTileIds) listTileMap.set(id, makeListTile(id));
-  for (const id of taskTileIds) taskTileMap.set(id, makeTaskTile(id));
+  function makeListTile(info: VirtualTileInfo) {
+    const row = document.createElement('div');
+    row.className = 'watch-list-tile';
+    row.dataset.testid = `watch-list-item-${info.listIndex ?? 0}`;
+
+    const textWrap = document.createElement('div');
+    textWrap.className = 'watch-list-text';
+
+    const titleDom = document.createElement('div');
+    titleDom.className = 'watch-list-title';
+
+    const subDom = document.createElement('div');
+    subDom.className = 'watch-list-subtitle';
+
+    const chevron = document.createElement('div');
+    chevron.className = 'watch-chevron';
+    chevron.innerHTML =
+      '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3.5L10.5 8L6 12.5" stroke="#9ca3af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+    textWrap.append(titleDom, subDom);
+    row.append(textWrap, chevron);
+
+    let clickHandler: (() => void) | null = null;
+    row.addEventListener('click', () => {
+      if (clickHandler) clickHandler();
+    });
+
+    const titleEl = {
+      get text() {
+        return titleDom.textContent ?? '';
+      },
+      set text(val: string) {
+        titleDom.textContent = val;
+      },
+    };
+    const subEl = {
+      get text() {
+        return subDom.textContent ?? '';
+      },
+      set text(val: string) {
+        subDom.textContent = val;
+      },
+    };
+    const touchEl = {
+      get onclick() {
+        return clickHandler;
+      },
+      set onclick(fn: (() => void) | null) {
+        clickHandler = fn;
+      },
+    };
+
+    const tile = {
+      getElementById(id: string) {
+        if (id === 'list-title') return titleEl;
+        if (id === 'list-subtitle') return subEl;
+        if (id === 'list-touch') return touchEl;
+        return null;
+      },
+    };
+    delegate?.configureTile(tile, info);
+    return row;
+  }
+
+  function rebuild() {
+    const prevScrollTop = containerDom.scrollTop;
+    containerDom.innerHTML = '';
+    rowElements = [];
+    if (!delegate) return;
+
+    let categoryCount = 0;
+    for (let i = 0; i < length; i++) {
+      const info = delegate.getTileInfo(i);
+      let el: HTMLElement;
+      if (info.type === 'sync-pool' || info.type === 'lists-sync-pool') {
+        el = makeSyncTile(info);
+      } else if (info.type === 'spacer-pool' || info.type === 'lists-spacer-pool') {
+        el = makeSpacerTile();
+      } else if (info.type === 'category-pool') {
+        el = makeCategoryHeaderTile(info, categoryCount++);
+      } else if (info.type === 'item-pool') {
+        el = makeTaskTile(info);
+      } else if (info.type === 'list-pool') {
+        el = makeListTile(info);
+      } else {
+        el = makeSpacerTile();
+      }
+      rowElements.push(el);
+      containerDom.appendChild(el);
+    }
+    containerDom.scrollTop = prevScrollTop;
+  }
 
   return {
-    getElementById(id: string) {
-      if (id === 'status') return statusEl;
-      if (id === 'sync-btn') return syncBtnEl;
-      if (id === 'back-btn') return backBtnEl;
-      if (id === 'back-btn-label') return backBtnLabelEl;
-      if (id === 'lists-view') return listsViewEl;
-      if (id === 'tasks-view') return tasksViewEl;
-      return listTileMap.get(id) ?? taskTileMap.get(id) ?? null;
+    get delegate() {
+      return delegate;
     },
+    set delegate(d: VirtualTileDelegate | null) {
+      delegate = d;
+    },
+    get length() {
+      return length;
+    },
+    set length(nextLen: number) {
+      length = nextLen;
+      rebuild();
+    },
+    get value() {
+      return value;
+    },
+    set value(nextVal: number) {
+      applyScrollValue(nextVal);
+    },
+  };
+}
+
+function createBrowserFitbitDocument(root: HTMLElement) {
+  // Verify index.gui contains the expected panorama + virtual tile-list structure
+  if (!indexGuiXml.includes('href="#panoramaview"') || !indexGuiXml.includes('<var id="virtual" value="1" />')) {
+    throw new Error('fitbit/resources/index.gui missing expected #panoramaview or virtual #tile-list markup');
+  }
+
+  root.innerHTML = `
+    <div class="watch-header">
+      <div id="status" data-testid="watch-status">Loading...</div>
+      <div id="page-hint" data-testid="watch-page-hint">Lists ›</div>
+    </div>
+    <div id="container" class="watch-panorama">
+      <div id="tasks-view" class="watch-view" data-testid="watch-tasks-view"></div>
+      <div id="lists-view" class="watch-view" data-testid="watch-lists-view" style="display:none"></div>
+    </div>
+  `;
+
+  const statusDom = root.querySelector<HTMLDivElement>('#status')!;
+  const pageHintDom = root.querySelector<HTMLDivElement>('#page-hint')!;
+  const tasksViewDom = root.querySelector<HTMLDivElement>('#tasks-view')!;
+  const listsViewDom = root.querySelector<HTMLDivElement>('#lists-view')!;
+
+  const statusEl = {
+    get text() {
+      return statusDom.textContent ?? '';
+    },
+    set text(val: string) {
+      statusDom.textContent = val;
+    },
+  };
+
+  const pageHintEl = {
+    get text() {
+      return pageHintDom.textContent ?? '';
+    },
+    set text(val: string) {
+      pageHintDom.textContent = val;
+    },
+  };
+
+  let panoramaValue = 0;
+  const listeners = new Map<string, Array<() => void>>();
+  let onvaluechangeHandler: (() => void) | null = null;
+
+  function applyPanoramaDisplay() {
+    tasksViewDom.style.display = panoramaValue === 0 ? 'block' : 'none';
+    listsViewDom.style.display = panoramaValue === 1 ? 'block' : 'none';
+  }
+
+  function notifyPanoramaChange() {
+    if (onvaluechangeHandler) onvaluechangeHandler();
+    for (const evt of ['change', 'select']) {
+      for (const fn of listeners.get(evt) ?? []) fn();
+    }
+  }
+
+  const containerEl = {
+    get value() {
+      return panoramaValue;
+    },
+    set value(nextVal: number) {
+      panoramaValue = nextVal === 1 ? 1 : 0;
+      applyPanoramaDisplay();
+    },
+    get onvaluechange() {
+      return onvaluechangeHandler;
+    },
+    set onvaluechange(fn: (() => void) | null) {
+      onvaluechangeHandler = fn;
+    },
+    addEventListener(evt: string, fn: () => void) {
+      const list = listeners.get(evt) ?? [];
+      list.push(fn);
+      listeners.set(evt, list);
+    },
+    swipeTo(page: number) {
+      panoramaValue = page === 1 ? 1 : 0;
+      applyPanoramaDisplay();
+      notifyPanoramaChange();
+    },
+  };
+
+  const checklistEl = createBrowserVirtualTileList(tasksViewDom, 'tasks');
+  const listsChecklistEl = createBrowserVirtualTileList(listsViewDom, 'lists');
+
+  return {
+    doc: {
+      getElementById(id: string) {
+        if (id === 'status') return statusEl;
+        if (id === 'page-hint') return pageHintEl;
+        if (id === 'container') return containerEl;
+        if (id === 'checklist') return checklistEl;
+        if (id === 'lists-checklist') return listsChecklistEl;
+        return null;
+      },
+    },
+    containerEl,
+    checklistEl,
+    listsChecklistEl,
   };
 }
 
@@ -375,9 +473,7 @@ const fixedNowParam = params.get('now');
 let fixedNowMs: number | null = fixedNowParam ? Number(fixedNowParam) : null;
 
 const watchScreen = document.querySelector<HTMLElement>('#watch-screen')!;
-const listTileIds = extractIds(indexGuiXml, 'list-item-');
-const taskTileIds = extractIds(indexGuiXml, 'item-');
-const fitbitDoc = createBrowserFitbitDocument(watchScreen, listTileIds, taskTileIds);
+const browserUi = createBrowserFitbitDocument(watchScreen);
 
 let watchApp: ReturnType<typeof createWatchApp>;
 const companion = createCompanionSync({
@@ -393,7 +489,7 @@ const companion = createCompanionSync({
 });
 
 watchApp = createWatchApp({
-  document: fitbitDoc,
+  document: browserUi.doc,
   fs: fitbitFs,
   now: () => (fixedNowMs !== null ? fixedNowMs : Date.now()),
   isConnected: () => isBluetoothOnline,
@@ -421,6 +517,25 @@ window.__fitbitHarness = {
   },
   pressHardwareBack() {
     return watchApp.goBack();
+  },
+  swipeToLists() {
+    browserUi.containerEl.swipeTo(1);
+  },
+  swipeToTasks() {
+    browserUi.containerEl.swipeTo(0);
+  },
+  pullToSync() {
+    if (browserUi.containerEl.value === 1) {
+      browserUi.listsChecklistEl.value = 0;
+    } else {
+      browserUi.checklistEl.value = 0;
+    }
+  },
+  getPanoramaValue() {
+    return browserUi.containerEl.value;
+  },
+  getTasksScrollValue() {
+    return browserUi.checklistEl.value;
   },
   getWatchState() {
     return watchApp.getState();

@@ -90,14 +90,15 @@ test('FIT-001: Versa 2 multi-list selection, category-sorted tasks, offline fs r
     await expect(page.getByTestId('watch-status')).toHaveText('3 left');
 
     await tester.step('initial-sync', {
-      description: 'Selecting Shopping opens the top-level list view sorted by category (Produce → Bakery → Dairy); hardware Back exits cleanly',
+      description: 'Selecting Shopping slides to the top-level Tasks page with short category headers (Produce → Bakery → Dairy), large-font task items, slim 28px status bar, and scrolled past the pull-down Sync tile',
       verifications: [
         {
-          spec: 'Lists sub-view button is visible and status shows 3 left',
+          spec: 'Slim status bar shows 3 left with Lists › hint and list starts scrolled past row 0 Sync tile',
           check: async () => {
-            await expect(page.getByTestId('watch-back-btn')).toBeVisible();
-            await expect(page.getByTestId('watch-back-btn')).toHaveText('Lists');
             await expect(page.getByTestId('watch-status')).toHaveText('3 left');
+            await expect(page.getByTestId('watch-page-hint')).toHaveText('Lists ›');
+            const scrollVal = await page.evaluate(() => window.__fitbitHarness.getTasksScrollValue());
+            expect(scrollVal).toBe(1);
           },
         },
         {
@@ -109,33 +110,40 @@ test('FIT-001: Versa 2 multi-list selection, category-sorted tasks, offline fs r
           },
         },
         {
-          spec: 'Items appear in category order: Apples, Sourdough, Milk',
+          spec: 'Category headers and large-font tasks appear in order: Produce/Apples, Bakery/Sourdough, Dairy/Milk',
           check: async () => {
+            await expect(page.getByTestId('watch-category-0')).toHaveText('Produce');
             await expect(page.getByTestId('watch-item-0')).toContainText('Apples');
+            await expect(page.getByTestId('watch-category-1')).toHaveText('Bakery');
             await expect(page.getByTestId('watch-item-1')).toContainText('Sourdough');
+            await expect(page.getByTestId('watch-category-2')).toHaveText('Dairy');
             await expect(page.getByTestId('watch-item-2')).toContainText('Milk');
           },
         },
       ],
     });
 
-    // Tap Apples → instant local toggle (no BLE traffic until next sync), then tap Sync
+    // Tap Apples → instant local toggle (no BLE traffic until next sync), then pull down to tap Sync tile
     await page.getByTestId('watch-item-0').click();
     await expect(page.getByTestId('watch-item-0')).toHaveAttribute('data-checked', '1');
     await expect(page.getByTestId('watch-status')).toHaveText('1 unsynced');
     expect(server.backend.getTasks('shopping').find((t) => t.uid === 'apples')?.ics).toContain('STATUS:NEEDS-ACTION');
 
-    await page.getByTestId('watch-sync-btn').click();
+    await page.evaluate(() => window.__fitbitHarness.pullToSync());
+    await expect(page.getByTestId('watch-sync-tile')).toBeVisible();
+    await page.getByTestId('watch-sync-tile').click();
     await expect(page.getByTestId('watch-status')).toHaveText('2 left');
 
     await tester.step('toggled-online', {
-      description: 'Tapping Apples toggles instantly on the watch and persists COMPLETED losslessly to CalDAV on the next sync',
+      description: 'Tapping Apples toggles instantly on the watch; pulling down and tapping the full-width Sync tile persists COMPLETED losslessly to CalDAV',
       verifications: [
         {
-          spec: 'Apples tile is checked and status updates to 2 left',
+          spec: 'Apples tile is checked, status updates to 2 left, and list scrolls back past Sync tile',
           check: async () => {
             await expect(page.getByTestId('watch-item-0')).toHaveAttribute('data-checked', '1');
             await expect(page.getByTestId('watch-status')).toHaveText('2 left');
+            const scrollVal = await page.evaluate(() => window.__fitbitHarness.getTasksScrollValue());
+            expect(scrollVal).toBe(1);
           },
         },
         {
@@ -193,33 +201,34 @@ test('FIT-001: Versa 2 multi-list selection, category-sorted tasks, offline fs r
       ],
     });
 
-    // Open Lists sub-view (Back button closes sub-view back to remembered Shopping list)
-    await page.getByTestId('watch-back-btn').click();
+    // Swipe from right via #panoramaview → opens Lists page
+    await page.evaluate(() => window.__fitbitHarness.swipeToLists());
     await expect(page.getByTestId('watch-lists-view')).toBeVisible();
-    await expect(page.getByTestId('watch-back-btn')).toHaveText('Back');
+    await expect(page.getByTestId('watch-page-hint')).toHaveText('‹ Tasks');
     await expect(page.getByTestId('watch-status')).toHaveText('Lists (2)');
     await expect(page.getByTestId('watch-list-item-0')).toContainText('1 left');
 
-    // Verify hardware Back inside the Lists sub-view returns to Shopping without exiting
+    // Verify hardware Back on Lists page slides back to Shopping without exiting
     const closedSubView = await page.evaluate(() => window.__fitbitHarness.pressHardwareBack());
     expect(closedSubView).toBe(true);
     await expect(page.getByTestId('watch-tasks-view')).toBeVisible();
-    await expect(page.getByTestId('watch-back-btn')).toHaveText('Lists');
+    await expect(page.getByTestId('watch-page-hint')).toHaveText('Lists ›');
 
-    // Open Lists sub-view again and switch to Hardware list
-    await page.getByTestId('watch-back-btn').click();
+    // Swipe from right again and switch to Hardware list
+    await page.evaluate(() => window.__fitbitHarness.swipeToLists());
     await expect(page.getByTestId('watch-lists-view')).toBeVisible();
     await expect(page.getByTestId('watch-status')).toHaveText('Lists (2)');
     await page.getByTestId('watch-list-item-1').click();
     await expect(page.getByTestId('watch-item-0')).toContainText('Wood Screws');
 
     await tester.step('switched-list', {
-      description: 'User opens the Lists sub-view and switches to the Hardware list',
+      description: 'User swipes from the right to the Lists page and switches to the Hardware list',
       verifications: [
         {
-          spec: 'Hardware list task Wood Screws is displayed',
+          spec: 'Hardware list category Fasteners and task Wood Screws are displayed',
           check: async () => {
             await expect(page.getByTestId('watch-status')).toHaveText('1 left');
+            await expect(page.getByTestId('watch-category-0')).toHaveText('Fasteners');
             await expect(page.getByTestId('watch-item-0')).toContainText('Wood Screws');
           },
         },

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { parseVTodo } from '@tasker/core';
 import { createMockCalDav } from '@tasker/mock-caldav';
 import { describe, expect, it } from 'vitest';
-import { createWatchApp, getListCacheFilename } from '../app/watch-app.js';
+import { buildTaskRows, createWatchApp, getListCacheFilename } from '../app/watch-app.js';
 import { createCompanionSync } from '../companion/sync.js';
 
 function createMemorySettings(initial: Record<string, string> = {}) {
@@ -63,115 +63,238 @@ function createMemoryFs() {
   };
 }
 
-interface MockTaskTile {
-  display: string;
-  checkbox: { text: string; value: number; onclick: (() => void) | null };
-  category: { text: string };
+interface MockSyncRow {
+  kind: 'sync';
+  label: string;
+  onclick: (() => void) | null;
 }
 
-interface MockListTile {
-  display: string;
-  title: { text: string };
-  subtitle: { text: string };
-  touch: { onclick: (() => void) | null };
+interface MockSpacerRow {
+  kind: 'spacer';
 }
 
-function createMockWatchDocument(taskSlotCount = 20, listSlotCount = 10) {
-  const status = { text: '' };
-  const syncBtn = { onclick: null as (() => void) | null };
-  const backBtn = {
-    style: { display: 'none' },
-    onclick: null as (() => void) | null,
+interface MockCategoryRow {
+  kind: 'category';
+  title: string;
+}
+
+interface MockTaskRow {
+  kind: 'task';
+  taskIndex: number;
+  title: string;
+  titleFill: string;
+  checked: boolean;
+  onclick: (() => void) | null;
+}
+
+interface MockListRow {
+  kind: 'list';
+  listIndex: number;
+  title: string;
+  subtitle: string;
+  onclick: (() => void) | null;
+}
+
+type MockRenderedRow = MockSyncRow | MockSpacerRow | MockCategoryRow | MockTaskRow | MockListRow;
+
+interface MockVirtualDelegate {
+  getTileInfo(index: number): {
+    type: string;
+    category?: string;
+    taskIndex?: number;
+    listIndex?: number;
   };
-  const backBtnLabel = { text: 'Lists', style: { display: 'none' } };
-  const listsView = { style: { display: 'none' } };
-  const tasksView = { style: { display: 'inline' } };
+  configureTile(tile: unknown, info: unknown): void;
+}
 
-  const taskTiles: MockTaskTile[] = [];
-  for (let i = 0; i < taskSlotCount; i++) {
-    taskTiles.push({
-      display: 'none',
-      checkbox: { text: '', value: 0, onclick: null },
-      category: { text: '' },
-    });
+function createMockVirtualTileList() {
+  let delegate: MockVirtualDelegate | null = null;
+  let length = 0;
+  let value = 0;
+  let rows: MockRenderedRow[] = [];
+
+  function rebuild() {
+    rows = [];
+    if (!delegate) return;
+    for (let i = 0; i < length; i++) {
+      const info = delegate.getTileInfo(i);
+      if (info.type === 'sync-pool' || info.type === 'lists-sync-pool') {
+        const row: MockSyncRow = { kind: 'sync', label: '', onclick: null };
+        const tile = {
+          getElementById(id: string) {
+            if (id === 'sync-label') {
+              return {
+                get text() { return row.label; },
+                set text(v: string) { row.label = v; },
+              };
+            }
+            if (id === 'sync-touch') {
+              return {
+                get onclick() { return row.onclick; },
+                set onclick(fn: (() => void) | null) { row.onclick = fn; },
+              };
+            }
+            return null;
+          },
+        };
+        delegate.configureTile(tile, info);
+        rows.push(row);
+      } else if (info.type === 'spacer-pool' || info.type === 'lists-spacer-pool') {
+        rows.push({ kind: 'spacer' });
+      } else if (info.type === 'category-pool') {
+        const row: MockCategoryRow = { kind: 'category', title: '' };
+        const tile = {
+          getElementById(id: string) {
+            if (id === 'category-title') {
+              return {
+                get text() { return row.title; },
+                set text(v: string) { row.title = v; },
+              };
+            }
+            return null;
+          },
+        };
+        delegate.configureTile(tile, info);
+        rows.push(row);
+      } else if (info.type === 'item-pool') {
+        const row: MockTaskRow = {
+          kind: 'task',
+          taskIndex: info.taskIndex ?? 0,
+          title: '',
+          titleFill: '#ffffff',
+          checked: false,
+          onclick: null,
+        };
+        const tile = {
+          getElementById(id: string) {
+            if (id === 'task-title') {
+              return {
+                get text() { return row.title; },
+                set text(v: string) { row.title = v; },
+                style: {
+                  get fill() { return row.titleFill; },
+                  set fill(v: string) { row.titleFill = v; },
+                },
+              };
+            }
+            if (id === 'checkbox-check') {
+              return {
+                style: {
+                  get display() { return row.checked ? 'inline' : 'none'; },
+                  set display(v: string) { row.checked = v !== 'none'; },
+                },
+              };
+            }
+            if (id === 'task-touch') {
+              return {
+                get onclick() { return row.onclick; },
+                set onclick(fn: (() => void) | null) { row.onclick = fn; },
+              };
+            }
+            return null;
+          },
+        };
+        delegate.configureTile(tile, info);
+        rows.push(row);
+      } else if (info.type === 'list-pool') {
+        const row: MockListRow = {
+          kind: 'list',
+          listIndex: info.listIndex ?? 0,
+          title: '',
+          subtitle: '',
+          onclick: null,
+        };
+        const tile = {
+          getElementById(id: string) {
+            if (id === 'list-title') {
+              return {
+                get text() { return row.title; },
+                set text(v: string) { row.title = v; },
+              };
+            }
+            if (id === 'list-subtitle') {
+              return {
+                get text() { return row.subtitle; },
+                set text(v: string) { row.subtitle = v; },
+              };
+            }
+            if (id === 'list-touch') {
+              return {
+                get onclick() { return row.onclick; },
+                set onclick(fn: (() => void) | null) { row.onclick = fn; },
+              };
+            }
+            return null;
+          },
+        };
+        delegate.configureTile(tile, info);
+        rows.push(row);
+      }
+    }
   }
 
-  const listTiles: MockListTile[] = [];
-  for (let i = 0; i < listSlotCount; i++) {
-    listTiles.push({
-      display: 'none',
-      title: { text: '' },
-      subtitle: { text: '' },
-      touch: { onclick: null },
-    });
-  }
+  return {
+    get delegate() { return delegate; },
+    set delegate(d: MockVirtualDelegate | null) { delegate = d; },
+    get length() { return length; },
+    set length(n: number) { length = n; rebuild(); },
+    get value() { return value; },
+    set value(v: number) { value = v; },
+    get rows() { return rows; },
+    get taskRows(): MockTaskRow[] {
+      return rows.filter((r): r is MockTaskRow => r.kind === 'task');
+    },
+    get categoryRows(): MockCategoryRow[] {
+      return rows.filter((r): r is MockCategoryRow => r.kind === 'category');
+    },
+    get listRows(): MockListRow[] {
+      return rows.filter((r): r is MockListRow => r.kind === 'list');
+    },
+    get syncRow(): MockSyncRow | undefined {
+      return rows.find((r): r is MockSyncRow => r.kind === 'sync');
+    },
+  };
+}
+
+function createMockWatchDocument() {
+  const status = { text: '' };
+  const pageHint = { text: '' };
+  let panoramaValue = 0;
+  let onvaluechange: (() => void) | null = null;
+  const listeners = new Map<string, Array<() => void>>();
+
+  const container = {
+    get value() { return panoramaValue; },
+    set value(v: number) { panoramaValue = v; },
+    get onvaluechange() { return onvaluechange; },
+    set onvaluechange(fn: (() => void) | null) { onvaluechange = fn; },
+    addEventListener(evt: string, fn: () => void) {
+      const list = listeners.get(evt) ?? [];
+      list.push(fn);
+      listeners.set(evt, list);
+    },
+    swipeTo(page: number) {
+      panoramaValue = page;
+      if (onvaluechange) onvaluechange();
+      for (const fn of listeners.get('select') ?? []) fn();
+    },
+  };
+
+  const checklist = createMockVirtualTileList();
+  const listsChecklist = createMockVirtualTileList();
 
   const doc = {
     getElementById(id: string) {
       if (id === 'status') return status;
-      if (id === 'sync-btn') return syncBtn;
-      if (id === 'back-btn') return backBtn;
-      if (id === 'back-btn-label') return backBtnLabel;
-      if (id === 'lists-view') return listsView;
-      if (id === 'tasks-view') return tasksView;
-
-      const listMatch = /^list-item-(\d+)$/.exec(id);
-      if (listMatch) {
-        const idx = Number(listMatch[1]);
-        if (idx >= listTiles.length) return null;
-        const tile = listTiles[idx];
-        return {
-          getElementById(subId: string) {
-            if (subId === 'list-tile-list') {
-              return {
-                style: {
-                  get display() {
-                    return tile.display;
-                  },
-                  set display(val: string) {
-                    tile.display = val;
-                  },
-                },
-              };
-            }
-            if (subId === 'list-title') return tile.title;
-            if (subId === 'list-subtitle') return tile.subtitle;
-            if (subId === 'list-touch') return tile.touch;
-            return null;
-          },
-        };
-      }
-
-      const taskMatch = /^item-(\d+)$/.exec(id);
-      if (taskMatch) {
-        const idx = Number(taskMatch[1]);
-        if (idx >= taskTiles.length) return null;
-        const tile = taskTiles[idx];
-        return {
-          getElementById(subId: string) {
-            if (subId === 'task-tile-list') {
-              return {
-                style: {
-                  get display() {
-                    return tile.display;
-                  },
-                  set display(val: string) {
-                    tile.display = val;
-                  },
-                },
-              };
-            }
-            if (subId === 'task-checkbox') return tile.checkbox;
-            if (subId === 'item-category') return tile.category;
-            return null;
-          },
-        };
-      }
+      if (id === 'page-hint') return pageHint;
+      if (id === 'container') return container;
+      if (id === 'checklist') return checklist;
+      if (id === 'lists-checklist') return listsChecklist;
       return null;
     },
   };
 
-  return { doc, status, syncBtn, backBtn, backBtnLabel, listsView, tasksView, taskTiles, listTiles };
+  return { doc, status, pageHint, container, checklist, listsChecklist };
 }
 
 function makeIcs(
@@ -201,8 +324,28 @@ async function flushPromises(): Promise<void> {
   }
 }
 
-describe('Fitbit Watch multi-list navigation, local fs persistence, and timestamp reconciliation', () => {
-  it('supports selecting between multiple lists, going back, and caching each list independently in fs', async () => {
+describe('Fitbit Watch panorama navigation, virtual tile list with category headers, local fs persistence, and reconciliation', () => {
+  it('groups consecutive tasks under single short category header rows after row 0 Sync and row 1 spacer', () => {
+    const rows = buildTaskRows([
+      { uid: '1', summary: 'Apples', categories: ['Produce'], completed: false },
+      { uid: '2', summary: 'Bananas', categories: ['Produce'], completed: false },
+      { uid: '3', summary: 'Milk', categories: ['Dairy'], completed: true },
+      { uid: '4', summary: 'Napkins', categories: [], completed: false },
+    ]);
+    expect(rows).toEqual([
+      { type: 'sync-pool' },
+      { type: 'spacer-pool' },
+      { type: 'category-pool', category: 'Produce' },
+      { type: 'item-pool', taskIndex: 0 },
+      { type: 'item-pool', taskIndex: 1 },
+      { type: 'category-pool', category: 'Dairy' },
+      { type: 'item-pool', taskIndex: 2 },
+      { type: 'category-pool', category: 'Uncategorized' },
+      { type: 'item-pool', taskIndex: 3 },
+    ]);
+  });
+
+  it('supports swiping to Lists via #panoramaview, going back, pull-down Sync tile, and independent CBOR fs caches', async () => {
     const backend = createMockCalDav({
       auth: { username: 'alice', password: 'secret' },
       calendars: [
@@ -213,6 +356,7 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
       tasks: [
         { uid: 'milk', calendarSlug: 'shopping', etag: 'e1', ics: makeIcs('milk', 'Milk', 'Dairy') },
         { uid: 'apples', calendarSlug: 'shopping', etag: 'e2', ics: makeIcs('apples', 'Apples', 'Produce') },
+        { uid: 'bananas', calendarSlug: 'shopping', etag: 'e3', ics: makeIcs('bananas', 'Bananas', 'Produce') },
         { uid: 'nails', calendarSlug: 'hardware', etag: 'h1', ics: makeIcs('nails', 'Wood Screws', 'Fasteners') },
       ],
       files: [
@@ -251,58 +395,54 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
     watchApp.start();
     await flushPromises();
 
-    // Multiple VTODO lists available → lands on lists view (VEVENT-only Personal excluded)
-    expect(ui.listsView.style.display).toBe('inline');
-    expect(ui.tasksView.style.display).toBe('none');
-    expect(ui.backBtn.style.display).toBe('none');
+    // Multiple VTODO lists available → panorama lands on Lists page (1) scrolled past Sync tile (value=1)
+    expect(ui.container.value).toBe(1);
+    expect(ui.listsChecklist.value).toBe(1);
     expect(ui.status.text).toBe('Lists (2)');
-    expect(ui.listTiles[0].title.text).toBe('Shopping');
-    expect(ui.listTiles[1].title.text).toBe('Hardware');
-    expect(ui.listTiles[2].display).toBe('none');
+    expect(ui.listsChecklist.listRows.map((r) => r.title)).toEqual(['Shopping', 'Hardware']);
 
-    // Select Shopping → top-level tasks view
-    ui.listTiles[0].touch.onclick!();
+    // Select Shopping → panorama switches to Tasks page (0), scrolled past Sync tile (value=1)
+    ui.listsChecklist.listRows[0].onclick!();
     await flushPromises();
-    expect(ui.tasksView.style.display).toBe('inline');
-    expect(ui.backBtn.style.display).toBe('inline');
-    expect(ui.backBtnLabel.text).toBe('Lists');
-    expect(ui.status.text).toBe('2 left');
-    expect(ui.taskTiles[0].checkbox.text).toBe('Apples'); // Produce before Dairy
-    expect(ui.taskTiles[1].checkbox.text).toBe('Milk');
+    expect(ui.container.value).toBe(0);
+    expect(ui.checklist.value).toBe(1);
+    expect(ui.status.text).toBe('3 left');
+    expect(ui.pageHint.text).toBe('Lists ›');
+    // Produce header appears once for Apples + Bananas, then Dairy header for Milk
+    expect(ui.checklist.categoryRows.map((c) => c.title)).toEqual(['Produce', 'Dairy']);
+    expect(ui.checklist.taskRows.map((t) => t.title)).toEqual(['Apples', 'Bananas', 'Milk']);
 
-    // Hardware Back from top-level tasks view returns false (lets Versa 2 exit app cleanly)
+    // Hardware Back from top-level Tasks page (0) returns false (exits cleanly)
     // and keeps activeCalendarHref remembered in t-lists.cbor!
     expect(watchApp.goBack()).toBe(false);
-    expect(ui.tasksView.style.display).toBe('inline');
+    expect(ui.container.value).toBe(0);
     expect((fs.files.get('t-lists.cbor') as { activeCalendarHref?: string }).activeCalendarHref).toBe(
       '/remote.php/dav/calendars/alice/shopping/',
     );
     expect(fs.encodings.get('t-lists.cbor')).toBe('cbor');
 
-    // Tap header "Lists" button → opens Lists sub-view without clearing activeCalendarHref
-    ui.backBtn.onclick!();
-    await flushPromises();
-    expect(ui.listsView.style.display).toBe('inline');
-    expect(ui.tasksView.style.display).toBe('none');
-    expect(ui.backBtn.style.display).toBe('inline');
-    expect(ui.backBtnLabel.text).toBe('Back');
-    expect(ui.listTiles[0].subtitle.text).toBe('2 left');
-    expect(ui.listTiles[1].subtitle.text).toBe('Tap to load');
+    // Swipe right-to-left via #panoramaview → opens Lists page (1) without clearing activeCalendarHref
+    ui.container.swipeTo(1);
+    expect(ui.container.value).toBe(1);
+    expect(ui.status.text).toBe('Lists (2)');
+    expect(ui.pageHint.text).toBe('‹ Tasks');
+    expect(ui.listsChecklist.listRows[0].subtitle).toBe('3 left');
+    expect(ui.listsChecklist.listRows[1].subtitle).toBe('Tap to load');
 
-    // Hardware Back from Lists sub-view returns true and returns to remembered Shopping list
+    // Hardware Back from Lists page (1) returns true and slides back to remembered Shopping list (page 0)
     expect(watchApp.goBack()).toBe(true);
-    expect(ui.tasksView.style.display).toBe('inline');
-    expect(ui.listsView.style.display).toBe('none');
-    expect(ui.backBtnLabel.text).toBe('Lists');
-    expect(ui.taskTiles[0].checkbox.text).toBe('Apples');
+    expect(ui.container.value).toBe(0);
+    expect(ui.pageHint.text).toBe('Lists ›');
+    expect(ui.checklist.taskRows[0].title).toBe('Apples');
 
-    // Open Lists sub-view again and switch to Hardware
-    ui.backBtn.onclick!();
+    // Swipe to Lists again and switch to Hardware
+    ui.container.swipeTo(1);
+    ui.listsChecklist.listRows[1].onclick!();
     await flushPromises();
-    ui.listTiles[1].touch.onclick!();
-    await flushPromises();
+    expect(ui.container.value).toBe(0);
     expect(ui.status.text).toBe('1 left');
-    expect(ui.taskTiles[0].checkbox.text).toBe('Wood Screws');
+    expect(ui.checklist.categoryRows.map((c) => c.title)).toEqual(['Fasteners']);
+    expect(ui.checklist.taskRows[0].title).toBe('Wood Screws');
     expect((fs.files.get('t-lists.cbor') as { activeCalendarHref?: string }).activeCalendarHref).toBe(
       '/remote.php/dav/calendars/alice/hardware/',
     );
@@ -352,10 +492,10 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
     });
     watchApp.start();
     await flushPromises();
-    ui1.listTiles[0].touch.onclick!();
+    ui1.listsChecklist.listRows[0].onclick!();
     await flushPromises();
     expect(ui1.status.text).toBe('2 left');
-    expect(watchApp.goBack()).toBe(false); // Exits app cleanly without forgetting Shopping
+    expect(watchApp.goBack()).toBe(false);
 
     // Meanwhile another device adds "Bread" on Nextcloud
     backend.setTask({
@@ -386,11 +526,10 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
     });
     watchApp.start();
 
-    // Saved Shopping list is displayed IMMEDIATELY before Bluetooth opens
-    expect(ui2.tasksView.style.display).toBe('inline');
-    expect(ui2.listsView.style.display).toBe('none');
-    expect(ui2.taskTiles[0].checkbox.text).toBe('Apples');
-    expect(ui2.taskTiles[1].checkbox.text).toBe('Milk');
+    // Saved Shopping list is displayed IMMEDIATELY on page 0 scrolled past Sync tile
+    expect(ui2.container.value).toBe(0);
+    expect(ui2.checklist.value).toBe(1);
+    expect(ui2.checklist.taskRows.map((t) => t.title)).toEqual(['Apples', 'Milk']);
     expect(sentTypes).toEqual([]);
 
     // Bluetooth peerSocket opens → triggers background FETCH_TASKS while cached items remain visible
@@ -398,8 +537,7 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
     watchApp.onConnectionChange(true);
     expect(sentTypes).toEqual(['FETCH_TASKS']);
     expect(ui2.status.text).toBe('Syncing...');
-    expect(ui2.taskTiles[0].checkbox.text).toBe('Apples');
-    expect(ui2.taskTiles[1].checkbox.text).toBe('Milk');
+    expect(ui2.checklist.taskRows.map((t) => t.title)).toEqual(['Apples', 'Milk']);
 
     // Background reply arrives with new item from Nextcloud
     await flushPromises();
@@ -407,30 +545,38 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
       deliveredReplies.shift()!();
     }
     expect(ui2.status.text).toBe('3 left');
-    const renderedSummaries = [0, 1, 2].map((i) => ui2.taskTiles[i].checkbox.text);
-    expect(renderedSummaries).toContain('Bread');
+    expect(ui2.checklist.taskRows.map((t) => t.title)).toContain('Bread');
   });
 
-  it('defines explicit 58px tile heights, 40px header spacers, non-overlapping title/category, and header on top in Fitbit GUI', () => {
+  it('defines #panoramaview, virtual #tile-list pools, 28px slim header, pull-down sync tile, compact 32px category headers, and 28px task fonts in Fitbit GUI', () => {
     const gui = fsNode.readFileSync(path.resolve(__dirname, '../resources/index.gui'), 'utf8');
     const css = fsNode.readFileSync(path.resolve(__dirname, '../resources/styles.css'), 'utf8');
-    expect(css).toMatch(/\.tile-list-item\s*\{[^}]*height:\s*58;/);
-    expect(css).toMatch(/\.header-spacer-item\s*\{[^}]*height:\s*40;/);
-    expect(gui).toMatch(/<symbol\s+id="header-spacer"\s+height="40">/);
-    expect(gui).toMatch(/<symbol\s+id="list-item"\s+height="58">/);
-    expect(gui).toMatch(/<use\s+id="list-tile-list"\s+href="#tile-list-item"\s+class="tile-list-item"\s+height="58">/);
-    // Custom task tile positions title (y=26) cleanly above category (y=48) without #checkbox-tile overlap
+    const widgets = fsNode.readFileSync(path.resolve(__dirname, '../resources/widgets.gui'), 'utf8');
+
+    expect(widgets).toContain('panoramaview_widget.gui');
+    expect(gui).toContain('href="#panoramaview"');
+    expect(gui).toContain('<var id="virtual" value="1" />');
+    expect(gui).toContain('id="sync-pool"');
+    expect(gui).toContain('id="category-pool"');
+    expect(gui).toContain('id="item-pool"');
     expect(gui).not.toContain('checkbox-tile');
-    expect(gui).toMatch(/id="task-title"[^>]*y="26"/);
-    expect(gui).toMatch(/id="item-category"[^>]*y="48"/);
-    // Both tile lists start with a 40px header spacer so item-0 has full space below the 40px header
-    expect(gui.indexOf('id="lists-header-spacer"')).toBeLessThan(gui.indexOf('id="list-item-0"'));
-    expect(gui.indexOf('id="tasks-header-spacer"')).toBeLessThan(gui.indexOf('id="item-0"'));
-    // Header is declared after both lists so it always paints on top
-    expect(gui.indexOf('id="header-bg"')).toBeGreaterThan(gui.indexOf('id="tasks-view"'));
+
+    // Larger 28px font for both tasks and lists; compact 32px category header tiles
+    expect(gui).toMatch(/id="task-title"[^>]*font-size="28"/);
+    expect(gui).toMatch(/id="list-title"[^>]*font-size="28"/);
+    expect(gui).toMatch(/id="category-title"[^>]*font-size="18"/);
+    expect(css).toMatch(/\.sync-tile-item\s*\{[^}]*height:\s*80;/);
+    expect(css).toMatch(/\.header-spacer-item\s*\{[^}]*height:\s*28;/);
+    expect(css).toMatch(/\.category-header-item\s*\{[^}]*height:\s*32;/);
+    expect(css).toMatch(/\.task-tile-item\s*\{[^}]*height:\s*56;/);
+    expect(css).toMatch(/\.list-tile-item\s*\{[^}]*height:\s*68;/);
+
+    // Slim 28px header bar declared AFTER panorama so it always paints on top
+    expect(gui).toMatch(/id="header-bg"[^>]*height="26"/);
+    expect(gui.indexOf('id="header-bg"')).toBeGreaterThan(gui.indexOf('id="container"'));
   });
 
-  it('toggles tasks instantaneously without sending Bluetooth traffic until next sync and debounces fs writes', async () => {
+  it('toggles tasks instantaneously without sending Bluetooth traffic until pull-down Sync tile is tapped and debounces fs writes', async () => {
     const backend = createMockCalDav({
       auth: { username: 'alice', password: 'secret' },
       tasks: [
@@ -475,36 +621,39 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
     watchApp.start();
     await flushPromises();
     expect(ui.status.text).toBe('2 left');
+    expect(ui.checklist.value).toBe(1);
 
     // Reset counters before rapid user taps
     sentMessages.length = 0;
     writeCount = 0;
 
     // Rapidly check and uncheck Apples, then check Milk — zero BLE sends, zero blocking fs writes!
-    ui.taskTiles[0].checkbox.onclick!();
+    ui.checklist.taskRows[0].onclick!();
     clockMs += 1000;
-    ui.taskTiles[0].checkbox.onclick!();
+    ui.checklist.taskRows[0].onclick!();
     clockMs += 1000;
-    ui.taskTiles[1].checkbox.onclick!();
+    ui.checklist.taskRows[1].onclick!();
 
     expect(sentMessages).toEqual([]);
     expect(writeCount).toBe(0);
-    expect(ui.taskTiles[0].checkbox.value).toBe(0);
-    expect(ui.taskTiles[1].checkbox.value).toBe(1);
+    expect(ui.checklist.taskRows[0].checked).toBe(false);
+    expect(ui.checklist.taskRows[1].checked).toBe(true);
     expect(ui.status.text).toBe('2 unsynced');
     expect(watchApp.getState().pending).toEqual([
       { uid: 'apples', completed: false, updatedAt: Date.parse('2026-05-01T10:05:01.000Z') },
       { uid: 'milk', completed: true, updatedAt: Date.parse('2026-05-01T10:05:02.000Z') },
     ]);
 
-    // Flushing persistence writes once (e.g. on unload or next sync)
+    // Flushing persistence writes once (e.g. on unload)
     watchApp.flushPersistence();
     expect(writeCount).toBe(1);
 
-    // Next sync reconciles and pushes the recorded latest toggles to Nextcloud
-    watchApp.requestSync();
+    // Pull down to row 0 and tap the full-width Sync tile → pushes toggles to Nextcloud and scrolls back to value=1
+    ui.checklist.value = 0;
+    ui.checklist.syncRow!.onclick!();
     await flushPromises();
     expect(ui.status.text).toBe('1 left');
+    expect(ui.checklist.value).toBe(1);
     expect(parseVTodo(backend.getTasks('shopping').find((t) => t.uid === 'milk')!.ics).status).toBe('COMPLETED');
     expect(parseVTodo(backend.getTasks('shopping').find((t) => t.uid === 'apples')!.ics).status).toBe('NEEDS-ACTION');
   });
@@ -561,25 +710,24 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
     await flushPromises();
 
     // Open Shopping → Produce before Dairy
-    ui.listTiles[0].touch.onclick!();
+    ui.listsChecklist.listRows[0].onclick!();
     await flushPromises();
-    expect(ui.taskTiles[0].checkbox.text).toBe('Apples');
-    expect(ui.taskTiles[1].checkbox.text).toBe('Milk');
+    expect(ui.checklist.categoryRows.map((c) => c.title)).toEqual(['Produce', 'Dairy']);
+    expect(ui.checklist.taskRows.map((t) => t.title)).toEqual(['Apples', 'Milk']);
 
-    // Switch to Hardware → Electrical before Fasteners
-    ui.backBtn.onclick!();
+    // Swipe to Lists and switch to Hardware → Electrical before Fasteners
+    ui.container.swipeTo(1);
+    ui.listsChecklist.listRows[1].onclick!();
     await flushPromises();
-    ui.listTiles[1].touch.onclick!();
-    await flushPromises();
-    expect(ui.taskTiles[0].checkbox.text).toBe('Romex Wire');
-    expect(ui.taskTiles[1].checkbox.text).toBe('Wood Screws');
+    expect(ui.checklist.categoryRows.map((c) => c.title)).toEqual(['Electrical', 'Fasteners']);
+    expect(ui.checklist.taskRows.map((t) => t.title)).toEqual(['Romex Wire', 'Wood Screws']);
   });
 
   it('immediately renders cached list on restart and reconciles: newer server edits win, newer watch toggles sync up', async () => {
     const tBase = Date.parse('2026-05-01T10:00:00.000Z');
     const tWatchOffline = Date.parse('2026-05-01T10:05:00.000Z');
-    const tServerNewer = '20260501T101000Z'; // 10:10 > watch's 10:05 → server wins!
-    const tServerOlder = '20260501T100200Z'; // 10:02 < watch's 10:05 → watch wins!
+    const tServerNewer = '20260501T101000Z';
+    const tServerOlder = '20260501T100200Z';
 
     const backend = createMockCalDav({
       auth: { username: 'alice', password: 'secret' },
@@ -648,7 +796,6 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
       },
     });
 
-    // Initial sync auto-opens default Shopping list
     watchApp.start();
     await flushPromises();
     expect(ui1.status.text).toBe('2 left');
@@ -657,13 +804,10 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
     connected = false;
     watchApp.onConnectionChange(false);
     clockMs = tWatchOffline;
-    ui1.taskTiles[0].checkbox.onclick!(); // Apples → completed at 10:05
-    ui1.taskTiles[1].checkbox.onclick!(); // Milk → completed at 10:05
+    ui1.checklist.taskRows[0].onclick!();
+    ui1.checklist.taskRows[1].onclick!();
     expect(ui1.status.text).toBe('Offline (2 pending)');
 
-    // While watch is offline:
-    // - Server updates Milk at 10:10 (NEWER than 10:05) keeping it NEEDS-ACTION ("Organic Milk")
-    // - Server updates Apples summary at 10:02 (OLDER than 10:05) keeping it NEEDS-ACTION ("Honeycrisp Apples")
     backend.setTask({
       uid: 'milk',
       calendarSlug: 'shopping',
@@ -685,7 +829,6 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
       }),
     });
 
-    // Restart watch app while connected, capturing outgoing messages before async replies settle
     connected = true;
     const ui2 = createMockWatchDocument();
     const deliveredReplies: (() => void)[] = [];
@@ -707,15 +850,13 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
 
     watchApp.start();
 
-    // IMMEDIATELY (synchronously before ANY server reply!), watch renders stored list from fs!
-    expect(ui2.tasksView.style.display).toBe('inline');
-    expect(ui2.taskTiles[0].checkbox.text).toBe('Apples');
-    expect(ui2.taskTiles[0].checkbox.value).toBe(1);
-    expect(ui2.taskTiles[1].checkbox.text).toBe('Milk');
-    expect(ui2.taskTiles[1].checkbox.value).toBe(1);
+    expect(ui2.container.value).toBe(0);
+    expect(ui2.checklist.taskRows[0].title).toBe('Apples');
+    expect(ui2.checklist.taskRows[0].checked).toBe(true);
+    expect(ui2.checklist.taskRows[1].title).toBe('Milk');
+    expect(ui2.checklist.taskRows[1].checked).toBe(true);
     expect(ui2.status.text).toBe('Syncing...');
 
-    // Now let Companion async fetches and replies drain
     for (let round = 0; round < 5; round++) {
       await flushPromises();
       while (deliveredReplies.length > 0) {
@@ -723,14 +864,11 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
       }
     }
 
-    // Verify reconciliation outcome:
-    // - Milk (server 10:10 > watch 10:05): server won! Still NEEDS-ACTION ("Organic Milk"), NOT overwritten on server!
-    // - Apples (watch 10:05 > server 10:02): watch won! Synced COMPLETED up to server preserving server summary + X-PRESERVE!
     expect(ui2.status.text).toBe('1 left');
-    expect(ui2.taskTiles[0].checkbox.text).toBe('Honeycrisp Apples');
-    expect(ui2.taskTiles[0].checkbox.value).toBe(1);
-    expect(ui2.taskTiles[1].checkbox.text).toBe('Organic Milk');
-    expect(ui2.taskTiles[1].checkbox.value).toBe(0);
+    expect(ui2.checklist.taskRows[0].title).toBe('Honeycrisp Apples');
+    expect(ui2.checklist.taskRows[0].checked).toBe(true);
+    expect(ui2.checklist.taskRows[1].title).toBe('Organic Milk');
+    expect(ui2.checklist.taskRows[1].checked).toBe(false);
 
     const finalMilk = parseVTodo(backend.getTasks('shopping').find((t) => t.uid === 'milk')!.ics);
     const finalApples = parseVTodo(backend.getTasks('shopping').find((t) => t.uid === 'apples')!.ics);
@@ -783,7 +921,6 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
     await flushPromises();
     expect(ui.status.text).toBe('1 left');
 
-    // Another device updates Milk at 10:15 (strictly newer than watch's 10:05 toggle)
     backend.setTask({
       uid: 'milk',
       calendarSlug: 'shopping',
@@ -794,20 +931,16 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
       }),
     });
 
-    // Watch taps Milk at 10:05 (instant local toggle, no BLE traffic yet), then syncs →
-    // reconciliation sees server 10:15 > watch 10:05 so server wins!
-    ui.taskTiles[0].checkbox.onclick!();
-    expect(ui.taskTiles[0].checkbox.value).toBe(1);
+    ui.checklist.taskRows[0].onclick!();
+    expect(ui.checklist.taskRows[0].checked).toBe(true);
     expect(ui.status.text).toBe('1 unsynced');
     watchApp.requestSync();
     await flushPromises();
 
-    expect(ui.taskTiles[0].checkbox.value).toBe(0);
+    expect(ui.checklist.taskRows[0].checked).toBe(false);
     expect(ui.status.text).toBe('1 left');
-    const serverMilk = parseVTodo(backend.getTasks('shopping')[0].ics);
-    expect(serverMilk.status).toBe('NEEDS-ACTION');
+    expect(parseVTodo(backend.getTasks('shopping')[0].ics).status).toBe('NEEDS-ACTION');
 
-    // Also verify Companion's direct 412 conflict path when server changes mid-flight during UPDATE_TASK
     const serverMilk2 = backend.getTasks('shopping')[0];
     backend.setTask({
       ...serverMilk2,
@@ -892,14 +1025,13 @@ describe('Fitbit Watch multi-list navigation, local fs persistence, and timestam
     watchApp.start();
 
     expect(sent).toEqual([]);
-    expect(ui.tasksView.style.display).toBe('inline');
-    expect(ui.listsView.style.display).toBe('none');
+    expect(ui.container.value).toBe(0);
+    expect(ui.checklist.value).toBe(1);
     expect(ui.status.text).toBe('Offline');
-    expect(ui.taskTiles[0].display).toBe('inline');
-    expect(ui.taskTiles[0].checkbox.text).toBe('Apples');
-    expect(ui.taskTiles[0].checkbox.value).toBe(1);
-    expect(ui.taskTiles[1].display).toBe('inline');
-    expect(ui.taskTiles[1].checkbox.text).toBe('Milk');
-    expect(ui.taskTiles[1].checkbox.value).toBe(0);
+    expect(ui.checklist.categoryRows.map((c) => c.title)).toEqual(['Produce', 'Dairy']);
+    expect(ui.checklist.taskRows[0].title).toBe('Apples');
+    expect(ui.checklist.taskRows[0].checked).toBe(true);
+    expect(ui.checklist.taskRows[1].title).toBe('Milk');
+    expect(ui.checklist.taskRows[1].checked).toBe(false);
   });
 });
