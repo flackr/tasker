@@ -12,27 +12,14 @@ text {
   fill: #000000;
 }
 
-.sync-tile-item {
+/* Uniform 52px height across ALL pools in the Tasks VirtualTileList (Fitbit OS 4 requires identical heights to avoid scroll-offset drift). */
+.task-list-tile {
   width: 100%;
-  height: 80;
+  height: 52;
 }
 
-.header-spacer-item {
+/* Uniform 64px height across ALL pools in the Lists VirtualTileList. */
+.lists-list-tile {
   width: 100%;
-  height: 28;
-}
-
-.category-header-item {
-  width: 100%;
-  height: 32;
-}
-
-.task-tile-item {
-  width: 100%;
-  height: 56;
-}
-
-.list-tile-item {
-  width: 100%;
-  height: 68;
+  height: 64;
 }

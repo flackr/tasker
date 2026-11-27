@@ -1,45 +1,59 @@
 <svg>
   <defs>
-    <!-- Pull-down full-width Sync tile (row 0, scrolled past by default via value=1) -->
-    <!-- Top 28px clears the slim 28px sticky status bar when pulled down to row 0 -->
-    <symbol id="sync-tile" href="#tile-list-item" class="sync-tile-item" focusable="false" pointer-events="none" system-events="all" display="none">
-      <rect id="sync-touch" x="0" y="0" width="100%" height="80" fill="#000000" pointer-events="visible" />
-      <rect id="sync-pill" x="12" y="32" width="276" height="42" rx="10" fill="#2563eb" pointer-events="none" />
-      <text id="sync-label" x="150" y="60" text-anchor="middle" text-length="20" font-size="22" fill="#ffffff" pointer-events="none">Sync Now</text>
+    <!-- ALL Tasks VirtualTileList symbols MUST share the exact same height (52px) so Fitbit OS 4's virtual scroll engine never drifts when scrolling back up. -->
+
+    <!-- Row 0 (52px): top 28px clears the sticky status bar; bottom 24px shows the active list name when pulled down -->
+    <symbol id="top-spacer" href="#tile-list-item" class="task-list-tile" height="52" focusable="false" pointer-events="none" system-events="all" display="none">
+      <rect x="0" y="0" width="100%" height="52" fill="#000000" pointer-events="none" />
+      <text id="active-list-label" x="150" y="46" text-anchor="middle" text-length="24" font-size="16" fill="#9ca3af" pointer-events="none"></text>
     </symbol>
 
-    <!-- 28px top spacer (row 1): aligns row 2 cleanly below the 28px status bar when value=1 -->
-    <symbol id="header-spacer" href="#tile-list-item" class="header-spacer-item" focusable="false" pointer-events="none" system-events="all" display="none">
-      <rect x="0" y="0" width="100%" height="28" fill="#000000" pointer-events="none" />
+    <!-- Row 1 (52px): pull-down split action bar with Sync (left) and Autohide/Show All (right) -->
+    <symbol id="actions-tile" href="#tile-list-item" class="task-list-tile" height="52" focusable="false" pointer-events="none" system-events="all" display="none">
+      <rect x="0" y="0" width="100%" height="52" fill="#000000" pointer-events="none" />
+      <rect id="sync-touch" x="8" y="4" width="138" height="44" rx="10" fill="#2563eb" pointer-events="visible" />
+      <text id="sync-label" x="77" y="33" text-anchor="middle" text-length="14" font-size="20" fill="#ffffff" pointer-events="none">Sync</text>
+      <rect id="autohide-touch" x="154" y="4" width="138" height="44" rx="10" fill="#374151" pointer-events="visible" />
+      <text id="autohide-label" x="223" y="33" text-anchor="middle" text-length="14" font-size="20" fill="#ffffff" pointer-events="none">Autohide</text>
     </symbol>
 
-    <!-- Compact category section header tile (32px) so category isn't repeated on every task -->
-    <symbol id="category-header" href="#tile-list-item" class="category-header-item" focusable="false" pointer-events="none" system-events="all" display="none">
-      <rect x="0" y="0" width="100%" height="30" fill="#0f172a" pointer-events="none" />
-      <text id="category-title" x="14" y="22" text-length="28" font-size="18" fill="#60a5fa" pointer-events="none"></text>
-      <rect y="30" width="100%" height="2" fill="#1f2937" pointer-events="none" />
+    <!-- Category section header (52px): top 28px aligns beneath the sticky status bar on row 2 and provides clean section spacing below; bottom 24px shows compact category label -->
+    <symbol id="category-header" href="#tile-list-item" class="task-list-tile" height="52" focusable="false" pointer-events="none" system-events="all" display="none">
+      <rect x="0" y="0" width="100%" height="26" fill="#000000" pointer-events="none" />
+      <rect x="0" y="26" width="100%" height="24" fill="#0f172a" pointer-events="none" />
+      <text id="category-title" x="14" y="45" text-length="28" font-size="18" fill="#60a5fa" pointer-events="none"></text>
+      <rect y="50" width="100%" height="2" fill="#1f2937" pointer-events="none" />
     </symbol>
 
-    <!-- Large-font single-line task tile (56px height, 28px title, 28x28 checkbox) -->
-    <symbol id="task-item" href="#tile-list-item" class="task-tile-item" focusable="false" pointer-events="none" system-events="all" display="none">
-      <rect id="task-touch" x="0" y="0" width="100%" height="56" fill="#000000" pointer-events="visible" />
-      <text id="task-title" x="14" y="38" text-length="24" font-size="28" fill="#ffffff" pointer-events="none"></text>
-      <rect id="checkbox-border" x="258" y="14" width="28" height="28" rx="6" fill="#6b7280" pointer-events="none" />
-      <rect id="checkbox-fill" x="260" y="16" width="24" height="24" rx="4" fill="#000000" pointer-events="none" />
+    <!-- Large-font single-line task tile (52px height, 28px title, 28x28 checkbox) -->
+    <symbol id="task-item" href="#tile-list-item" class="task-list-tile" height="52" focusable="false" pointer-events="none" system-events="all" display="none">
+      <rect id="task-touch" x="0" y="0" width="100%" height="52" fill="#000000" pointer-events="visible" />
+      <text id="task-title" x="14" y="36" text-length="24" font-size="28" fill="#ffffff" pointer-events="none"></text>
+      <rect id="checkbox-border" x="258" y="12" width="28" height="28" rx="6" fill="#6b7280" pointer-events="none" />
+      <rect id="checkbox-fill" x="260" y="14" width="24" height="24" rx="4" fill="#000000" pointer-events="none" />
       <g id="checkbox-check" display="none" pointer-events="none">
-        <rect x="258" y="14" width="28" height="28" rx="6" fill="#22c55e" />
-        <line x1="264" y1="28" x2="270" y2="35" stroke-width="3" fill="#ffffff" />
-        <line x1="270" y1="35" x2="280" y2="22" stroke-width="3" fill="#ffffff" />
+        <rect x="258" y="12" width="28" height="28" rx="6" fill="#22c55e" />
+        <line x1="264" y1="26" x2="270" y2="33" stroke-width="3" fill="#ffffff" />
+        <line x1="270" y1="33" x2="280" y2="20" stroke-width="3" fill="#ffffff" />
       </g>
-      <rect id="tile-divider-bottom" y="54" width="100%" height="2" fill="#1f2937" pointer-events="none" />
+      <rect id="tile-divider-bottom" y="50" width="100%" height="2" fill="#1f2937" pointer-events="none" />
     </symbol>
 
-    <!-- Large-font list picker tile (68px height, 28px name + 16px count subtitle) -->
-    <symbol id="list-item" href="#tile-list-item" class="list-tile-item" focusable="false" pointer-events="none" system-events="all" display="none">
-      <rect id="list-touch" x="0" y="0" width="100%" height="68" fill="#000000" pointer-events="visible" />
-      <text id="list-title" x="14" y="32" text-length="24" font-size="28" fill="#ffffff" pointer-events="none"></text>
-      <text id="list-subtitle" x="14" y="56" text-length="28" font-size="16" fill="#60a5fa" pointer-events="none"></text>
-      <rect id="list-divider-bottom" y="66" width="100%" height="2" fill="#1f2937" pointer-events="none" />
+    <!-- ALL Lists VirtualTileList symbols MUST share the exact same height (64px) -->
+
+    <!-- Lists Row 0 (64px): top 28px clears status bar, bottom 36px has full-width Sync Lists button -->
+    <symbol id="lists-sync-tile" href="#tile-list-item" class="lists-list-tile" height="64" focusable="false" pointer-events="none" system-events="all" display="none">
+      <rect x="0" y="0" width="100%" height="64" fill="#000000" pointer-events="none" />
+      <rect id="lists-sync-touch" x="12" y="30" width="276" height="32" rx="8" fill="#2563eb" pointer-events="visible" />
+      <text id="lists-sync-label" x="150" y="52" text-anchor="middle" text-length="16" font-size="18" fill="#ffffff" pointer-events="none">Sync Lists</text>
+    </symbol>
+
+    <!-- Large-font list picker tile (64px height, 28px name + 16px subtitle) -->
+    <symbol id="list-item" href="#tile-list-item" class="lists-list-tile" height="64" focusable="false" pointer-events="none" system-events="all" display="none">
+      <rect id="list-touch" x="0" y="0" width="100%" height="64" fill="#000000" pointer-events="visible" />
+      <text id="list-title" x="14" y="30" text-length="24" font-size="28" fill="#ffffff" pointer-events="none"></text>
+      <text id="list-subtitle" x="14" y="54" text-length="28" font-size="16" fill="#60a5fa" pointer-events="none"></text>
+      <rect id="list-divider-bottom" y="62" width="100%" height="2" fill="#1f2937" pointer-events="none" />
     </symbol>
   </defs>
 
@@ -47,73 +61,68 @@
 
   <!-- Native horizontal swipe container: Page 0 = Tasks, Page 1 = Lists (swipe from right) -->
   <use id="container" href="#panoramaview" x="0" y="0" width="100%" height="100%">
-    <!-- Page 0 (top-level): Active task list with pull-down Sync tile + short category headers -->
+    <!-- Page 0 (top-level): Active task list (uniform 52px VirtualTileList) -->
     <use id="tasks-page" href="#panoramaview-item">
       <use id="checklist" href="#tile-list" x="0" y="0" width="100%" height="100%">
         <var id="virtual" value="1" />
         <var id="separator-height-bottom" value="0" />
 
-        <use id="sync-pool" href="#tile-list-pool">
-          <use id="sync-pool[0]" href="#sync-tile" />
-          <use id="sync-pool[1]" href="#sync-tile" />
+        <use id="spacer-pool" href="#tile-list-pool">
+          <use id="spacer-pool[0]" href="#top-spacer" height="52" />
+          <use id="spacer-pool[1]" href="#top-spacer" height="52" />
         </use>
 
-        <use id="spacer-pool" href="#tile-list-pool">
-          <use id="spacer-pool[0]" href="#header-spacer" />
-          <use id="spacer-pool[1]" href="#header-spacer" />
+        <use id="actions-pool" href="#tile-list-pool">
+          <use id="actions-pool[0]" href="#actions-tile" height="52" />
+          <use id="actions-pool[1]" href="#actions-tile" height="52" />
         </use>
 
         <use id="category-pool" href="#tile-list-pool">
-          <use id="category-pool[0]" href="#category-header" />
-          <use id="category-pool[1]" href="#category-header" />
-          <use id="category-pool[2]" href="#category-header" />
-          <use id="category-pool[3]" href="#category-header" />
-          <use id="category-pool[4]" href="#category-header" />
-          <use id="category-pool[5]" href="#category-header" />
-          <use id="category-pool[6]" href="#category-header" />
-          <use id="category-pool[7]" href="#category-header" />
+          <use id="category-pool[0]" href="#category-header" height="52" />
+          <use id="category-pool[1]" href="#category-header" height="52" />
+          <use id="category-pool[2]" href="#category-header" height="52" />
+          <use id="category-pool[3]" href="#category-header" height="52" />
+          <use id="category-pool[4]" href="#category-header" height="52" />
+          <use id="category-pool[5]" href="#category-header" height="52" />
+          <use id="category-pool[6]" href="#category-header" height="52" />
+          <use id="category-pool[7]" href="#category-header" height="52" />
         </use>
 
         <use id="item-pool" href="#tile-list-pool">
-          <use id="item-pool[0]" href="#task-item" />
-          <use id="item-pool[1]" href="#task-item" />
-          <use id="item-pool[2]" href="#task-item" />
-          <use id="item-pool[3]" href="#task-item" />
-          <use id="item-pool[4]" href="#task-item" />
-          <use id="item-pool[5]" href="#task-item" />
-          <use id="item-pool[6]" href="#task-item" />
-          <use id="item-pool[7]" href="#task-item" />
-          <use id="item-pool[8]" href="#task-item" />
-          <use id="item-pool[9]" href="#task-item" />
+          <use id="item-pool[0]" href="#task-item" height="52" />
+          <use id="item-pool[1]" href="#task-item" height="52" />
+          <use id="item-pool[2]" href="#task-item" height="52" />
+          <use id="item-pool[3]" href="#task-item" height="52" />
+          <use id="item-pool[4]" href="#task-item" height="52" />
+          <use id="item-pool[5]" href="#task-item" height="52" />
+          <use id="item-pool[6]" href="#task-item" height="52" />
+          <use id="item-pool[7]" href="#task-item" height="52" />
+          <use id="item-pool[8]" href="#task-item" height="52" />
+          <use id="item-pool[9]" href="#task-item" height="52" />
         </use>
       </use>
     </use>
 
-    <!-- Page 1 (swipe from right): Available VTODO task lists picker -->
+    <!-- Page 1 (swipe from right): Available VTODO task lists picker (uniform 64px VirtualTileList) -->
     <use id="lists-page" href="#panoramaview-item">
       <use id="lists-checklist" href="#tile-list" x="0" y="0" width="100%" height="100%">
         <var id="virtual" value="1" />
         <var id="separator-height-bottom" value="0" />
 
         <use id="lists-sync-pool" href="#tile-list-pool">
-          <use id="lists-sync-pool[0]" href="#sync-tile" />
-          <use id="lists-sync-pool[1]" href="#sync-tile" />
-        </use>
-
-        <use id="lists-spacer-pool" href="#tile-list-pool">
-          <use id="lists-spacer-pool[0]" href="#header-spacer" />
-          <use id="lists-spacer-pool[1]" href="#header-spacer" />
+          <use id="lists-sync-pool[0]" href="#lists-sync-tile" height="64" />
+          <use id="lists-sync-pool[1]" href="#lists-sync-tile" height="64" />
         </use>
 
         <use id="list-pool" href="#tile-list-pool">
-          <use id="list-pool[0]" href="#list-item" />
-          <use id="list-pool[1]" href="#list-item" />
-          <use id="list-pool[2]" href="#list-item" />
-          <use id="list-pool[3]" href="#list-item" />
-          <use id="list-pool[4]" href="#list-item" />
-          <use id="list-pool[5]" href="#list-item" />
-          <use id="list-pool[6]" href="#list-item" />
-          <use id="list-pool[7]" href="#list-item" />
+          <use id="list-pool[0]" href="#list-item" height="64" />
+          <use id="list-pool[1]" href="#list-item" height="64" />
+          <use id="list-pool[2]" href="#list-item" height="64" />
+          <use id="list-pool[3]" href="#list-item" height="64" />
+          <use id="list-pool[4]" href="#list-item" height="64" />
+          <use id="list-pool[5]" href="#list-item" height="64" />
+          <use id="list-pool[6]" href="#list-item" height="64" />
+          <use id="list-pool[7]" href="#list-item" height="64" />
         </use>
       </use>
     </use>

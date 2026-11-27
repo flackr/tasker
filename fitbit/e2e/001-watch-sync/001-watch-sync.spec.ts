@@ -93,12 +93,12 @@ test('FIT-001: Versa 2 multi-list selection, category-sorted tasks, offline fs r
       description: 'Selecting Shopping slides to the top-level Tasks page with short category headers (Produce → Bakery → Dairy), large-font task items, slim 28px status bar, and scrolled past the pull-down Sync tile',
       verifications: [
         {
-          spec: 'Slim status bar shows 3 left with Lists › hint and list starts scrolled past row 0 Sync tile',
+          spec: 'Slim status bar shows 3 left with Lists › hint and list starts scrolled past rows 0-1 onto row 2',
           check: async () => {
             await expect(page.getByTestId('watch-status')).toHaveText('3 left');
             await expect(page.getByTestId('watch-page-hint')).toHaveText('Lists ›');
             const scrollVal = await page.evaluate(() => window.__fitbitHarness.getTasksScrollValue());
-            expect(scrollVal).toBe(1);
+            expect(scrollVal).toBe(2);
           },
         },
         {
@@ -123,27 +123,28 @@ test('FIT-001: Versa 2 multi-list selection, category-sorted tasks, offline fs r
       ],
     });
 
-    // Tap Apples → instant local toggle (no BLE traffic until next sync), then pull down to tap Sync tile
+    // Tap Apples → instant local toggle (no BLE traffic until next sync), then pull down to reveal Sync & Autohide
     await page.getByTestId('watch-item-0').click();
     await expect(page.getByTestId('watch-item-0')).toHaveAttribute('data-checked', '1');
     await expect(page.getByTestId('watch-status')).toHaveText('1 unsynced');
     expect(server.backend.getTasks('shopping').find((t) => t.uid === 'apples')?.ics).toContain('STATUS:NEEDS-ACTION');
 
-    await page.evaluate(() => window.__fitbitHarness.pullToSync());
-    await expect(page.getByTestId('watch-sync-tile')).toBeVisible();
-    await page.getByTestId('watch-sync-tile').click();
+    await page.evaluate(() => window.__fitbitHarness.pullToActions());
+    await expect(page.getByTestId('watch-sync-btn')).toBeVisible();
+    await expect(page.getByTestId('watch-autohide-btn')).toHaveText('Autohide');
+    await page.getByTestId('watch-sync-btn').click();
     await expect(page.getByTestId('watch-status')).toHaveText('2 left');
 
     await tester.step('toggled-online', {
-      description: 'Tapping Apples toggles instantly on the watch; pulling down and tapping the full-width Sync tile persists COMPLETED losslessly to CalDAV',
+      description: 'Tapping Apples toggles instantly on the watch; pulling down and tapping Sync persists COMPLETED losslessly to CalDAV',
       verifications: [
         {
-          spec: 'Apples tile is checked, status updates to 2 left, and list scrolls back past Sync tile',
+          spec: 'Apples tile is checked, status updates to 2 left, and list scrolls back past actions tile (value=2)',
           check: async () => {
             await expect(page.getByTestId('watch-item-0')).toHaveAttribute('data-checked', '1');
             await expect(page.getByTestId('watch-status')).toHaveText('2 left');
             const scrollVal = await page.evaluate(() => window.__fitbitHarness.getTasksScrollValue());
-            expect(scrollVal).toBe(1);
+            expect(scrollVal).toBe(2);
           },
         },
         {
@@ -156,6 +157,17 @@ test('FIT-001: Versa 2 multi-list selection, category-sorted tasks, offline fs r
         },
       ],
     });
+
+    // Pull down and toggle Autohide → checked Apples & empty Produce header disappear; toggle Show All to restore
+    await page.evaluate(() => window.__fitbitHarness.pullToActions());
+    await page.getByTestId('watch-autohide-btn').click();
+    await expect(page.getByTestId('watch-autohide-btn')).toHaveText('Show All');
+    await expect(page.getByTestId('watch-item-0')).toHaveCount(0);
+    await expect(page.getByTestId('watch-category-0')).toHaveText('Bakery');
+    await page.evaluate(() => window.__fitbitHarness.pullToActions());
+    await page.getByTestId('watch-autohide-btn').click();
+    await expect(page.getByTestId('watch-autohide-btn')).toHaveText('Autohide');
+    await expect(page.getByTestId('watch-item-0')).toBeVisible();
 
     // Disconnect Bluetooth, toggle Milk offline, then reload watch app while still offline
     await page.evaluate(() => window.__fitbitHarness.setOnline(false));

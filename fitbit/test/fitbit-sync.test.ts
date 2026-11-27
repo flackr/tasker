@@ -63,14 +63,24 @@ function createMemoryFs() {
   };
 }
 
-interface MockSyncRow {
-  kind: 'sync';
-  label: string;
-  onclick: (() => void) | null;
-}
-
 interface MockSpacerRow {
   kind: 'spacer';
+  listName: string;
+}
+
+interface MockActionsRow {
+  kind: 'actions';
+  syncLabel: string;
+  syncOnclick: (() => void) | null;
+  autohideLabel: string;
+  autohideFill: string;
+  autohideOnclick: (() => void) | null;
+}
+
+interface MockListsSyncRow {
+  kind: 'lists-sync';
+  label: string;
+  onclick: (() => void) | null;
 }
 
 interface MockCategoryRow {
@@ -95,7 +105,13 @@ interface MockListRow {
   onclick: (() => void) | null;
 }
 
-type MockRenderedRow = MockSyncRow | MockSpacerRow | MockCategoryRow | MockTaskRow | MockListRow;
+type MockRenderedRow =
+  | MockSpacerRow
+  | MockActionsRow
+  | MockListsSyncRow
+  | MockCategoryRow
+  | MockTaskRow
+  | MockListRow;
 
 interface MockVirtualDelegate {
   getTileInfo(index: number): {
@@ -118,17 +134,76 @@ function createMockVirtualTileList() {
     if (!delegate) return;
     for (let i = 0; i < length; i++) {
       const info = delegate.getTileInfo(i);
-      if (info.type === 'sync-pool' || info.type === 'lists-sync-pool') {
-        const row: MockSyncRow = { kind: 'sync', label: '', onclick: null };
+      if (info.type === 'spacer-pool') {
+        const row: MockSpacerRow = { kind: 'spacer', listName: '' };
+        const tile = {
+          getElementById(id: string) {
+            if (id === 'active-list-label') {
+              return {
+                get text() { return row.listName; },
+                set text(v: string) { row.listName = v; },
+              };
+            }
+            return null;
+          },
+        };
+        delegate.configureTile(tile, info);
+        rows.push(row);
+      } else if (info.type === 'actions-pool') {
+        const row: MockActionsRow = {
+          kind: 'actions',
+          syncLabel: '',
+          syncOnclick: null,
+          autohideLabel: '',
+          autohideFill: '',
+          autohideOnclick: null,
+        };
         const tile = {
           getElementById(id: string) {
             if (id === 'sync-label') {
+              return {
+                get text() { return row.syncLabel; },
+                set text(v: string) { row.syncLabel = v; },
+              };
+            }
+            if (id === 'sync-touch') {
+              return {
+                get onclick() { return row.syncOnclick; },
+                set onclick(fn: (() => void) | null) { row.syncOnclick = fn; },
+              };
+            }
+            if (id === 'autohide-label') {
+              return {
+                get text() { return row.autohideLabel; },
+                set text(v: string) { row.autohideLabel = v; },
+              };
+            }
+            if (id === 'autohide-touch') {
+              return {
+                style: {
+                  get fill() { return row.autohideFill; },
+                  set fill(v: string) { row.autohideFill = v; },
+                },
+                get onclick() { return row.autohideOnclick; },
+                set onclick(fn: (() => void) | null) { row.autohideOnclick = fn; },
+              };
+            }
+            return null;
+          },
+        };
+        delegate.configureTile(tile, info);
+        rows.push(row);
+      } else if (info.type === 'lists-sync-pool') {
+        const row: MockListsSyncRow = { kind: 'lists-sync', label: '', onclick: null };
+        const tile = {
+          getElementById(id: string) {
+            if (id === 'lists-sync-label') {
               return {
                 get text() { return row.label; },
                 set text(v: string) { row.label = v; },
               };
             }
-            if (id === 'sync-touch') {
+            if (id === 'lists-sync-touch') {
               return {
                 get onclick() { return row.onclick; },
                 set onclick(fn: (() => void) | null) { row.onclick = fn; },
@@ -139,8 +214,6 @@ function createMockVirtualTileList() {
         };
         delegate.configureTile(tile, info);
         rows.push(row);
-      } else if (info.type === 'spacer-pool' || info.type === 'lists-spacer-pool') {
-        rows.push({ kind: 'spacer' });
       } else if (info.type === 'category-pool') {
         const row: MockCategoryRow = { kind: 'category', title: '' };
         const tile = {
@@ -250,8 +323,8 @@ function createMockVirtualTileList() {
     get listRows(): MockListRow[] {
       return rows.filter((r): r is MockListRow => r.kind === 'list');
     },
-    get syncRow(): MockSyncRow | undefined {
-      return rows.find((r): r is MockSyncRow => r.kind === 'sync');
+    get actionsRow(): MockActionsRow | undefined {
+      return rows.find((r): r is MockActionsRow => r.kind === 'actions');
     },
   };
 }
@@ -324,17 +397,18 @@ async function flushPromises(): Promise<void> {
   }
 }
 
-describe('Fitbit Watch panorama navigation, virtual tile list with category headers, local fs persistence, and reconciliation', () => {
-  it('groups consecutive tasks under single short category header rows after row 0 Sync and row 1 spacer', () => {
-    const rows = buildTaskRows([
+describe('Fitbit Watch panorama navigation, uniform virtual tile list, autohide, local fs persistence, and reconciliation', () => {
+  it('groups consecutive tasks under single category header rows after row 0 spacer and row 1 actions, and filters completed items in Autohide mode', () => {
+    const items = [
       { uid: '1', summary: 'Apples', categories: ['Produce'], completed: false },
-      { uid: '2', summary: 'Bananas', categories: ['Produce'], completed: false },
+      { uid: '2', summary: 'Bananas', categories: ['Produce'], completed: true },
       { uid: '3', summary: 'Milk', categories: ['Dairy'], completed: true },
       { uid: '4', summary: 'Napkins', categories: [], completed: false },
-    ]);
-    expect(rows).toEqual([
-      { type: 'sync-pool' },
+    ];
+
+    expect(buildTaskRows(items)).toEqual([
       { type: 'spacer-pool' },
+      { type: 'actions-pool' },
       { type: 'category-pool', category: 'Produce' },
       { type: 'item-pool', taskIndex: 0 },
       { type: 'item-pool', taskIndex: 1 },
@@ -343,6 +417,97 @@ describe('Fitbit Watch panorama navigation, virtual tile list with category head
       { type: 'category-pool', category: 'Uncategorized' },
       { type: 'item-pool', taskIndex: 3 },
     ]);
+
+    // With hideCompleted=true: Bananas, Milk, and the now-empty Dairy category header are omitted!
+    expect(buildTaskRows(items, { hideCompleted: true })).toEqual([
+      { type: 'spacer-pool' },
+      { type: 'actions-pool' },
+      { type: 'category-pool', category: 'Produce' },
+      { type: 'item-pool', taskIndex: 0 },
+      { type: 'category-pool', category: 'Uncategorized' },
+      { type: 'item-pool', taskIndex: 3 },
+    ]);
+  });
+
+  it('toggles between Autohide and Show All, immediately hides checked items, and persists hideCompleted in t-lists.cbor', async () => {
+    const backend = createMockCalDav({
+      auth: { username: 'alice', password: 'secret' },
+      tasks: [
+        { uid: 'apples', calendarSlug: 'shopping', etag: 'e1', ics: makeIcs('apples', 'Apples', 'Produce', { status: 'COMPLETED' }) },
+        { uid: 'milk', calendarSlug: 'shopping', etag: 'e2', ics: makeIcs('milk', 'Milk', 'Dairy') },
+        { uid: 'cheese', calendarSlug: 'shopping', etag: 'e3', ics: makeIcs('cheese', 'Cheese', 'Dairy') },
+      ],
+      files: [
+        {
+          path: 'Notes/tasker-config.json',
+          content: JSON.stringify({ categories: ['Produce', 'Dairy'] }),
+          contentType: 'application/json',
+        },
+      ],
+    });
+    const settingsStorage = createMemorySettings({
+      app_server: JSON.stringify({ name: 'https://cloud.example.com' }),
+      app_username: JSON.stringify({ name: 'alice' }),
+      app_password: JSON.stringify({ name: 'secret' }),
+      app_config_path: JSON.stringify({ name: 'Notes/tasker-config.json' }),
+    });
+    const fs = createMemoryFs();
+    const ui = createMockWatchDocument();
+    let watchApp: ReturnType<typeof createWatchApp>;
+    const companion = createCompanionSync({
+      settingsStorage,
+      fetch: backend.createFetch(),
+      send: (msg: unknown) => watchApp.onMessage(msg),
+    });
+    watchApp = createWatchApp({
+      document: ui.doc,
+      fs,
+      send: (msg: unknown) => void companion.onMessage(msg),
+    });
+
+    watchApp.start();
+    await flushPromises();
+
+    // Default: Show All (button reads "Autohide" to enable hiding)
+    expect(ui.checklist.actionsRow!.autohideLabel).toBe('Autohide');
+    expect(ui.checklist.categoryRows.map((c) => c.title)).toEqual(['Produce', 'Dairy']);
+    expect(ui.checklist.taskRows.map((t) => t.title)).toEqual(['Apples', 'Cheese', 'Milk']);
+
+    // Tap Autohide → hides completed Apples + empty Produce category, button switches to "Show All"
+    ui.checklist.actionsRow!.autohideOnclick!();
+    expect(watchApp.getState().hideCompleted).toBe(true);
+    expect(ui.checklist.actionsRow!.autohideLabel).toBe('Show All');
+    expect(ui.checklist.categoryRows.map((c) => c.title)).toEqual(['Dairy']);
+    expect(ui.checklist.taskRows.map((t) => t.title)).toEqual(['Cheese', 'Milk']);
+    expect((fs.files.get('t-lists.cbor') as { hideCompleted?: boolean }).hideCompleted).toBe(true);
+
+    // Tap Cheese while Autohide is active → Cheese immediately disappears, Milk remains
+    ui.checklist.taskRows[0].onclick!();
+    expect(ui.checklist.taskRows.map((t) => t.title)).toEqual(['Milk']);
+
+    // Tap Milk → all items checked, list scrolls to value=0 so Sync & Show All are immediately reachable
+    ui.checklist.taskRows[0].onclick!();
+    expect(ui.checklist.taskRows).toEqual([]);
+    expect(ui.checklist.value).toBe(0);
+
+    // Relaunch offline → hideCompleted preference restored from t-lists.cbor
+    const ui2 = createMockWatchDocument();
+    const watchApp2 = createWatchApp({
+      document: ui2.doc,
+      fs,
+      isConnected: () => false,
+      send: () => {},
+    });
+    watchApp2.start();
+    expect(watchApp2.getState().hideCompleted).toBe(true);
+    expect(ui2.checklist.actionsRow!.autohideLabel).toBe('Show All');
+    expect(ui2.checklist.taskRows).toEqual([]);
+
+    // Tap Show All → all 3 items reappear!
+    ui2.checklist.actionsRow!.autohideOnclick!();
+    expect(watchApp2.getState().hideCompleted).toBe(false);
+    expect(ui2.checklist.actionsRow!.autohideLabel).toBe('Autohide');
+    expect(ui2.checklist.taskRows.map((t) => t.title)).toEqual(['Apples', 'Cheese', 'Milk']);
   });
 
   it('supports swiping to Lists via #panoramaview, going back, pull-down Sync tile, and independent CBOR fs caches', async () => {
@@ -382,7 +547,7 @@ describe('Fitbit Watch panorama navigation, virtual tile list with category head
     const companion = createCompanionSync({
       settingsStorage,
       fetch: backend.createFetch(),
-      maxChunkBytes: 220, // Exercise chunked TASKS_CHUNK transfer too
+      maxChunkBytes: 220,
       send: (msg: unknown) => watchApp.onMessage(msg),
     });
 
@@ -395,25 +560,23 @@ describe('Fitbit Watch panorama navigation, virtual tile list with category head
     watchApp.start();
     await flushPromises();
 
-    // Multiple VTODO lists available → panorama lands on Lists page (1) scrolled past Sync tile (value=1)
+    // Multiple VTODO lists available → panorama lands on Lists page (1)
     expect(ui.container.value).toBe(1);
-    expect(ui.listsChecklist.value).toBe(1);
+    expect(ui.listsChecklist.value).toBe(0);
     expect(ui.status.text).toBe('Lists (2)');
     expect(ui.listsChecklist.listRows.map((r) => r.title)).toEqual(['Shopping', 'Hardware']);
 
-    // Select Shopping → panorama switches to Tasks page (0), scrolled past Sync tile (value=1)
+    // Select Shopping (3 items + 2 categories = 7 rows < 8 → starts at value=0 so nothing clips;
+    // lists with >= 8 rows start scrolled past rows 0-1 at value=2)
     ui.listsChecklist.listRows[0].onclick!();
     await flushPromises();
     expect(ui.container.value).toBe(0);
-    expect(ui.checklist.value).toBe(1);
+    expect(ui.checklist.value).toBe(0);
     expect(ui.status.text).toBe('3 left');
     expect(ui.pageHint.text).toBe('Lists ›');
-    // Produce header appears once for Apples + Bananas, then Dairy header for Milk
     expect(ui.checklist.categoryRows.map((c) => c.title)).toEqual(['Produce', 'Dairy']);
     expect(ui.checklist.taskRows.map((t) => t.title)).toEqual(['Apples', 'Bananas', 'Milk']);
 
-    // Hardware Back from top-level Tasks page (0) returns false (exits cleanly)
-    // and keeps activeCalendarHref remembered in t-lists.cbor!
     expect(watchApp.goBack()).toBe(false);
     expect(ui.container.value).toBe(0);
     expect((fs.files.get('t-lists.cbor') as { activeCalendarHref?: string }).activeCalendarHref).toBe(
@@ -421,7 +584,6 @@ describe('Fitbit Watch panorama navigation, virtual tile list with category head
     );
     expect(fs.encodings.get('t-lists.cbor')).toBe('cbor');
 
-    // Swipe right-to-left via #panoramaview → opens Lists page (1) without clearing activeCalendarHref
     ui.container.swipeTo(1);
     expect(ui.container.value).toBe(1);
     expect(ui.status.text).toBe('Lists (2)');
@@ -429,13 +591,11 @@ describe('Fitbit Watch panorama navigation, virtual tile list with category head
     expect(ui.listsChecklist.listRows[0].subtitle).toBe('3 left');
     expect(ui.listsChecklist.listRows[1].subtitle).toBe('Tap to load');
 
-    // Hardware Back from Lists page (1) returns true and slides back to remembered Shopping list (page 0)
     expect(watchApp.goBack()).toBe(true);
     expect(ui.container.value).toBe(0);
     expect(ui.pageHint.text).toBe('Lists ›');
     expect(ui.checklist.taskRows[0].title).toBe('Apples');
 
-    // Swipe to Lists again and switch to Hardware
     ui.container.swipeTo(1);
     ui.listsChecklist.listRows[1].onclick!();
     await flushPromises();
@@ -447,7 +607,6 @@ describe('Fitbit Watch panorama navigation, virtual tile list with category head
       '/remote.php/dav/calendars/alice/hardware/',
     );
 
-    // Verify separate short CBOR per-list files exist in Fitbit fs
     const shoppingFile = getListCacheFilename('/remote.php/dav/calendars/alice/shopping/');
     const hardwareFile = getListCacheFilename('/remote.php/dav/calendars/alice/hardware/');
     expect(shoppingFile).toMatch(/^t-[0-9a-f]{8}\.cbor$/);
@@ -477,7 +636,6 @@ describe('Fitbit Watch panorama navigation, virtual tile list with category head
     });
     const fs = createMemoryFs();
 
-    // Session 1: pick Shopping, load tasks, then press hardware Back to exit
     const ui1 = createMockWatchDocument();
     let watchApp: ReturnType<typeof createWatchApp>;
     const companion1 = createCompanionSync({
@@ -497,7 +655,6 @@ describe('Fitbit Watch panorama navigation, virtual tile list with category head
     expect(ui1.status.text).toBe('2 left');
     expect(watchApp.goBack()).toBe(false);
 
-    // Meanwhile another device adds "Bread" on Nextcloud
     backend.setTask({
       uid: 'bread',
       calendarSlug: 'shopping',
@@ -505,7 +662,6 @@ describe('Fitbit Watch panorama navigation, virtual tile list with category head
       ics: makeIcs('bread', 'Bread', 'Bakery'),
     });
 
-    // Session 2: relaunch with Bluetooth initially CLOSED (real Versa 2 boot behavior)
     let connected = false;
     const sentTypes: string[] = [];
     const ui2 = createMockWatchDocument();
@@ -526,20 +682,17 @@ describe('Fitbit Watch panorama navigation, virtual tile list with category head
     });
     watchApp.start();
 
-    // Saved Shopping list is displayed IMMEDIATELY on page 0 scrolled past Sync tile
     expect(ui2.container.value).toBe(0);
-    expect(ui2.checklist.value).toBe(1);
+    expect(ui2.checklist.value).toBe(0);
     expect(ui2.checklist.taskRows.map((t) => t.title)).toEqual(['Apples', 'Milk']);
     expect(sentTypes).toEqual([]);
 
-    // Bluetooth peerSocket opens → triggers background FETCH_TASKS while cached items remain visible
     connected = true;
     watchApp.onConnectionChange(true);
     expect(sentTypes).toEqual(['FETCH_TASKS']);
     expect(ui2.status.text).toBe('Syncing...');
     expect(ui2.checklist.taskRows.map((t) => t.title)).toEqual(['Apples', 'Milk']);
 
-    // Background reply arrives with new item from Nextcloud
     await flushPromises();
     while (deliveredReplies.length > 0) {
       deliveredReplies.shift()!();
@@ -548,7 +701,7 @@ describe('Fitbit Watch panorama navigation, virtual tile list with category head
     expect(ui2.checklist.taskRows.map((t) => t.title)).toContain('Bread');
   });
 
-  it('defines #panoramaview, virtual #tile-list pools, 28px slim header, pull-down sync tile, compact 32px category headers, and 28px task fonts in Fitbit GUI', () => {
+  it('enforces uniform tile heights across all VirtualTileList pools to prevent Fitbit OS 4 scroll drift, plus split Sync/Autohide buttons and 28px fonts', () => {
     const gui = fsNode.readFileSync(path.resolve(__dirname, '../resources/index.gui'), 'utf8');
     const css = fsNode.readFileSync(path.resolve(__dirname, '../resources/styles.css'), 'utf8');
     const widgets = fsNode.readFileSync(path.resolve(__dirname, '../resources/widgets.gui'), 'utf8');
@@ -556,27 +709,34 @@ describe('Fitbit Watch panorama navigation, virtual tile list with category head
     expect(widgets).toContain('panoramaview_widget.gui');
     expect(gui).toContain('href="#panoramaview"');
     expect(gui).toContain('<var id="virtual" value="1" />');
-    expect(gui).toContain('id="sync-pool"');
+    expect(gui).toContain('id="actions-pool"');
+    expect(gui).toContain('id="sync-touch"');
+    expect(gui).toContain('id="autohide-touch"');
     expect(gui).toContain('id="category-pool"');
     expect(gui).toContain('id="item-pool"');
     expect(gui).not.toContain('checkbox-tile');
 
-    // Larger 28px font for both tasks and lists; compact 32px category header tiles
+    // Verify ALL 4 Tasks VirtualTileList symbols have the EXACT same explicit height="52"
+    for (const symId of ['top-spacer', 'actions-tile', 'category-header', 'task-item']) {
+      expect(gui).toMatch(new RegExp(`<symbol\\s+id="${symId}"[^>]*class="task-list-tile"[^>]*height="52"`));
+    }
+    // Verify ALL 2 Lists VirtualTileList symbols have the EXACT same explicit height="64"
+    for (const symId of ['lists-sync-tile', 'list-item']) {
+      expect(gui).toMatch(new RegExp(`<symbol\\s+id="${symId}"[^>]*class="lists-list-tile"[^>]*height="64"`));
+    }
+
     expect(gui).toMatch(/id="task-title"[^>]*font-size="28"/);
     expect(gui).toMatch(/id="list-title"[^>]*font-size="28"/);
     expect(gui).toMatch(/id="category-title"[^>]*font-size="18"/);
-    expect(css).toMatch(/\.sync-tile-item\s*\{[^}]*height:\s*80;/);
-    expect(css).toMatch(/\.header-spacer-item\s*\{[^}]*height:\s*28;/);
-    expect(css).toMatch(/\.category-header-item\s*\{[^}]*height:\s*32;/);
-    expect(css).toMatch(/\.task-tile-item\s*\{[^}]*height:\s*56;/);
-    expect(css).toMatch(/\.list-tile-item\s*\{[^}]*height:\s*68;/);
+    expect(css).toMatch(/\.task-list-tile\s*\{[^}]*height:\s*52;/);
+    expect(css).toMatch(/\.lists-list-tile\s*\{[^}]*height:\s*64;/);
 
     // Slim 28px header bar declared AFTER panorama so it always paints on top
     expect(gui).toMatch(/id="header-bg"[^>]*height="26"/);
     expect(gui.indexOf('id="header-bg"')).toBeGreaterThan(gui.indexOf('id="container"'));
   });
 
-  it('toggles tasks instantaneously without sending Bluetooth traffic until pull-down Sync tile is tapped and debounces fs writes', async () => {
+  it('toggles tasks instantaneously without sending Bluetooth traffic until pull-down Sync button is tapped and debounces fs writes', async () => {
     const backend = createMockCalDav({
       auth: { username: 'alice', password: 'secret' },
       tasks: [
@@ -621,13 +781,11 @@ describe('Fitbit Watch panorama navigation, virtual tile list with category head
     watchApp.start();
     await flushPromises();
     expect(ui.status.text).toBe('2 left');
-    expect(ui.checklist.value).toBe(1);
+    expect(ui.checklist.value).toBe(0);
 
-    // Reset counters before rapid user taps
     sentMessages.length = 0;
     writeCount = 0;
 
-    // Rapidly check and uncheck Apples, then check Milk — zero BLE sends, zero blocking fs writes!
     ui.checklist.taskRows[0].onclick!();
     clockMs += 1000;
     ui.checklist.taskRows[0].onclick!();
@@ -644,16 +802,15 @@ describe('Fitbit Watch panorama navigation, virtual tile list with category head
       { uid: 'milk', completed: true, updatedAt: Date.parse('2026-05-01T10:05:02.000Z') },
     ]);
 
-    // Flushing persistence writes once (e.g. on unload)
     watchApp.flushPersistence();
     expect(writeCount).toBe(1);
 
-    // Pull down to row 0 and tap the full-width Sync tile → pushes toggles to Nextcloud and scrolls back to value=1
+    // Pull down to row 0 and tap Sync button → pushes toggles and resets scroll cleanly
     ui.checklist.value = 0;
-    ui.checklist.syncRow!.onclick!();
+    ui.checklist.actionsRow!.syncOnclick!();
     await flushPromises();
     expect(ui.status.text).toBe('1 left');
-    expect(ui.checklist.value).toBe(1);
+    expect(ui.checklist.value).toBe(0);
     expect(parseVTodo(backend.getTasks('shopping').find((t) => t.uid === 'milk')!.ics).status).toBe('COMPLETED');
     expect(parseVTodo(backend.getTasks('shopping').find((t) => t.uid === 'apples')!.ics).status).toBe('NEEDS-ACTION');
   });
@@ -709,13 +866,11 @@ describe('Fitbit Watch panorama navigation, virtual tile list with category head
     watchApp.start();
     await flushPromises();
 
-    // Open Shopping → Produce before Dairy
     ui.listsChecklist.listRows[0].onclick!();
     await flushPromises();
     expect(ui.checklist.categoryRows.map((c) => c.title)).toEqual(['Produce', 'Dairy']);
     expect(ui.checklist.taskRows.map((t) => t.title)).toEqual(['Apples', 'Milk']);
 
-    // Swipe to Lists and switch to Hardware → Electrical before Fasteners
     ui.container.swipeTo(1);
     ui.listsChecklist.listRows[1].onclick!();
     await flushPromises();
@@ -800,7 +955,6 @@ describe('Fitbit Watch panorama navigation, virtual tile list with category head
     await flushPromises();
     expect(ui1.status.text).toBe('2 left');
 
-    // Go offline and check off BOTH Apples and Milk at 10:05
     connected = false;
     watchApp.onConnectionChange(false);
     clockMs = tWatchOffline;
@@ -1026,7 +1180,7 @@ describe('Fitbit Watch panorama navigation, virtual tile list with category head
 
     expect(sent).toEqual([]);
     expect(ui.container.value).toBe(0);
-    expect(ui.checklist.value).toBe(1);
+    expect(ui.checklist.value).toBe(0);
     expect(ui.status.text).toBe('Offline');
     expect(ui.checklist.categoryRows.map((c) => c.title)).toEqual(['Produce', 'Dairy']);
     expect(ui.checklist.taskRows[0].title).toBe('Apples');

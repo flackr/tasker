@@ -17,18 +17,18 @@ As a Versa 2 user, I want to pick between my CalDAV task lists, check off items 
 ![Selecting Shopping slides to the top-level Tasks page with short category headers (Produce → Bakery → Dairy), large-font task items, slim 28px status bar, and scrolled past the pull-down Sync tile](./screenshots/001-initial-sync.png)
 
 **Verifications:**
-- [x] Slim status bar shows 3 left with Lists › hint and list starts scrolled past row 0 Sync tile
+- [x] Slim status bar shows 3 left with Lists › hint and list starts scrolled past rows 0-1 onto row 2
 - [x] Pressing Versa 2 hardware Back from top-level task list does not hijack exit or forget the selected list
 - [x] Category headers and large-font tasks appear in order: Produce/Apples, Bakery/Sourdough, Dairy/Milk
 
 ---
 
-## Tapping Apples toggles instantly on the watch; pulling down and tapping the full-width Sync tile persists COMPLETED losslessly to CalDAV
+## Tapping Apples toggles instantly on the watch; pulling down and tapping Sync persists COMPLETED losslessly to CalDAV
 
-![Tapping Apples toggles instantly on the watch; pulling down and tapping the full-width Sync tile persists COMPLETED losslessly to CalDAV](./screenshots/002-toggled-online.png)
+![Tapping Apples toggles instantly on the watch; pulling down and tapping Sync persists COMPLETED losslessly to CalDAV](./screenshots/002-toggled-online.png)
 
 **Verifications:**
-- [x] Apples tile is checked, status updates to 2 left, and list scrolls back past Sync tile
+- [x] Apples tile is checked, status updates to 2 left, and list scrolls back past actions tile (value=2)
 - [x] Mock CalDAV server persisted COMPLETED and preserved X-PRESERVE
 
 ---

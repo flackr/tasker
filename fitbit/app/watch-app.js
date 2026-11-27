@@ -115,6 +115,7 @@ function readListsIndex(fs) {
       calendars: Array.isArray(data.calendars) ? data.calendars : [],
       activeCalendarHref: data.activeCalendarHref,
       categoryOrder: order,
+      hideCompleted: Boolean(data.hideCompleted),
     };
   }
   // Backwards-compatible migration from single-file cache
@@ -136,6 +137,7 @@ function readListsIndex(fs) {
         : Array.isArray(legacy.aisleOrder)
           ? legacy.aisleOrder
           : [],
+      hideCompleted: false,
     };
   }
   return null;
@@ -145,6 +147,7 @@ function writeListsIndex(fs, state) {
   var record = {
     calendars: sanitizeCalendars(state.calendars),
     categoryOrder: Array.isArray(state.categoryOrder) ? state.categoryOrder.slice() : [],
+    hideCompleted: Boolean(state.hideCompleted),
   };
   if (state.activeCalendarHref) {
     record.activeCalendarHref = String(state.activeCalendarHref);
@@ -211,29 +214,44 @@ function getCategoryLabel(task) {
 }
 
 /**
- * Builds the flat virtual-tile row list for the Tasks VirtualTileList:
- * - Row 0: pull-down full-width Sync tile (scrolled past by default via value=1)
- * - Row 1: 28px spacer aligning row 2 cleanly beneath the 28px sticky status bar
- * - Rows 2+: short category header tiles interleaved before each category group,
- *   followed by large-font single-line task tiles.
+ * Builds the flat uniform-height (52px) virtual-tile row list for the Tasks VirtualTileList:
+ * - Row 0: spacer-pool (52px; top 28px clears the sticky status bar, bottom 24px shows active list name)
+ * - Row 1: actions-pool (52px; split Sync + Autohide/Show All buttons, scrolled past by default via value=2)
+ * - Rows 2+: bottom-aligned category header tiles (52px; top 28px clears status bar on row 2 and adds
+ *   section breathing room below) interleaved before each visible category group, followed by 52px task tiles.
  */
-export function buildTaskRows(items) {
-  var rows = [{ type: "sync-pool" }, { type: "spacer-pool" }];
+export function buildTaskRows(items, options) {
+  var hideCompleted = Boolean(options && options.hideCompleted);
+  var fallbackHeader = (options && options.fallbackHeader) || "Tasks";
+  var rows = [{ type: "spacer-pool" }, { type: "actions-pool" }];
   if (!Array.isArray(items) || items.length === 0) {
     return rows;
   }
 
+  var visibleIndices = [];
   var hasAnyCategory = false;
   for (var i = 0; i < items.length; i++) {
+    if (hideCompleted && items[i].completed) {
+      continue;
+    }
+    visibleIndices.push(i);
     if (getCategoryLabel(items[i])) {
       hasAnyCategory = true;
-      break;
     }
   }
 
+  if (visibleIndices.length === 0) {
+    return rows;
+  }
+
+  if (!hasAnyCategory) {
+    rows.push({ type: "category-pool", category: fallbackHeader });
+  }
+
   var lastCategory = null;
-  for (var j = 0; j < items.length; j++) {
-    var cat = getCategoryLabel(items[j]);
+  for (var j = 0; j < visibleIndices.length; j++) {
+    var taskIndex = visibleIndices[j];
+    var cat = getCategoryLabel(items[taskIndex]);
     if (hasAnyCategory) {
       var headerLabel = cat || "Uncategorized";
       if (headerLabel !== lastCategory) {
@@ -241,13 +259,13 @@ export function buildTaskRows(items) {
         lastCategory = headerLabel;
       }
     }
-    rows.push({ type: "item-pool", taskIndex: j });
+    rows.push({ type: "item-pool", taskIndex: taskIndex });
   }
   return rows;
 }
 
 function buildListRows(calendars) {
-  var rows = [{ type: "lists-sync-pool" }, { type: "lists-spacer-pool" }];
+  var rows = [{ type: "lists-sync-pool" }];
   if (!Array.isArray(calendars)) {
     return rows;
   }
@@ -265,13 +283,13 @@ function buildListRows(calendars) {
  *   Page 1 = Lists picker (swipe from the right to switch lists, hardware Back
  *   from Page 1 returns to Page 0, hardware Back from Page 0 exits cleanly)
  * - Slim 28px status-only header bar
- * - Virtual `#tile-list` with a pull-down full-width Sync tile at row 0 (started
- *   scrolled past via `value = 1`), compact 32px category section headers, and
- *   large-font (28px) single-line task tiles
- * - Local File Storage (`fs`, CBOR encoding) persistence for the list catalog
- *   (`t-lists.cbor`) and per-list tasks & unsynced toggles (`t-<hash>.cbor`)
- * - Immediate render from stored `fs` cache on restart while syncing in background
- * - Timestamp-aware reconciliation (`reconcileWatchTasks`) where newer server edits win
+ * - Uniform-height (52px) Virtual `#tile-list` for Tasks (preventing Fitbit OS 4
+ *   virtual scroll drift) with pull-down split Sync + Autohide/Show All buttons
+ *   at row 1 (started scrolled past via `value = 2`), grouped category headers,
+ *   and large 28px-font single-line task tiles
+ * - Uniform-height (64px) Virtual `#tile-list` for Lists
+ * - Local File Storage (`fs`, CBOR encoding) persistence for the list catalog +
+ *   `hideCompleted` preference (`t-lists.cbor`) and per-list tasks (`t-<hash>.cbor`)
  */
 export function createWatchApp(options) {
   var doc = options.document;
@@ -302,6 +320,7 @@ export function createWatchApp(options) {
     pending: [],
     categoryOrder: [],
     activeCategoryOrder: undefined,
+    hideCompleted: false,
     lastSyncedAt: undefined,
     syncing: false,
     syncingPending: false,
@@ -316,6 +335,17 @@ export function createWatchApp(options) {
     }
     if (titleEl && titleEl.style) {
       titleEl.style.fill = completed ? "#9ca3af" : "#ffffff";
+    }
+  }
+
+  function applyAutohideButtonUI(tile) {
+    var autoTouch = tile.getElementById("autohide-touch");
+    var autoLabel = tile.getElementById("autohide-label");
+    if (autoLabel) {
+      autoLabel.text = state.hideCompleted ? "Show All" : "Autohide";
+    }
+    if (autoTouch && autoTouch.style) {
+      autoTouch.style.fill = state.hideCompleted ? "#0f766e" : "#374151";
     }
   }
 
@@ -456,15 +486,27 @@ export function createWatchApp(options) {
           return { type: row.type, index: index };
         },
         configureTile: function (tile, info) {
-          if (info.type === "sync-pool") {
-            var labelEl = tile.getElementById("sync-label");
-            if (labelEl) {
-              labelEl.text = state.syncing ? "Syncing..." : "Sync Now";
+          if (info.type === "spacer-pool") {
+            var listLabel = tile.getElementById("active-list-label");
+            if (listLabel) {
+              listLabel.text = getActiveCalendarName();
+            }
+          } else if (info.type === "actions-pool") {
+            var syncLabel = tile.getElementById("sync-label");
+            if (syncLabel) {
+              syncLabel.text = state.syncing ? "Syncing..." : "Sync";
             }
             var syncTouch = tile.getElementById("sync-touch");
             if (syncTouch) {
               syncTouch.onclick = function () {
                 requestSync();
+              };
+            }
+            applyAutohideButtonUI(tile);
+            var autoTouch = tile.getElementById("autohide-touch");
+            if (autoTouch) {
+              autoTouch.onclick = function () {
+                toggleHideCompleted();
               };
             }
           } else if (info.type === "category-pool") {
@@ -496,7 +538,7 @@ export function createWatchApp(options) {
       listsChecklistEl.delegate = {
         getTileInfo: function (index) {
           var row = listRows[index];
-          if (!row) return { type: "lists-spacer-pool", index: index };
+          if (!row) return { type: "lists-sync-pool", index: index };
           if (row.type === "list-pool") {
             return { type: "list-pool", listIndex: row.listIndex, index: index };
           }
@@ -504,11 +546,11 @@ export function createWatchApp(options) {
         },
         configureTile: function (tile, info) {
           if (info.type === "lists-sync-pool") {
-            var labelEl = tile.getElementById("sync-label");
+            var labelEl = tile.getElementById("lists-sync-label");
             if (labelEl) {
               labelEl.text = state.syncing ? "Syncing..." : "Sync Lists";
             }
-            var syncTouch = tile.getElementById("sync-touch");
+            var syncTouch = tile.getElementById("lists-sync-touch");
             if (syncTouch) {
               syncTouch.onclick = function () {
                 requestSync();
@@ -540,15 +582,32 @@ export function createWatchApp(options) {
     }
   }
 
+  function hasVisibleTasks() {
+    return taskRows.length > 2;
+  }
+
+  function defaultTasksScrollValue() {
+    // Only start scrolled past rows 0-1 (104px) onto row 2 when there are enough
+    // rows (>= 8 * 52px = 416px) for row 2 to reach the top of the 300px screen
+    // cleanly without half-clipping row 0 under the 28px status bar.
+    return taskRows.length >= 8 ? 2 : 0;
+  }
+
   function renderTasksView(resetScroll) {
     initDelegates();
-    taskRows = buildTaskRows(state.items);
+    taskRows = buildTaskRows(state.items, {
+      hideCompleted: state.hideCompleted,
+      fallbackHeader: getActiveCalendarName(),
+    });
     if (checklistEl) {
+      var prevValue = typeof checklistEl.value === "number" ? checklistEl.value : 0;
       checklistEl.length = taskRows.length;
       if (resetScroll) {
-        // Start scrolled past row 0 (Sync tile) so row 1 (28px spacer) aligns
-        // row 2 cleanly below the 28px status bar. When empty, leave Sync visible.
-        checklistEl.value = state.items.length > 0 ? 1 : 0;
+        checklistEl.value = defaultTasksScrollValue();
+      } else if (!hasVisibleTasks()) {
+        checklistEl.value = 0;
+      } else if (prevValue >= taskRows.length) {
+        checklistEl.value = Math.max(0, taskRows.length - 1);
       }
     }
   }
@@ -559,7 +618,7 @@ export function createWatchApp(options) {
     if (listsChecklistEl) {
       listsChecklistEl.length = listRows.length;
       if (resetScroll) {
-        listsChecklistEl.value = state.calendars.length > 0 ? 1 : 0;
+        listsChecklistEl.value = 0;
       }
     }
   }
@@ -693,6 +752,13 @@ export function createWatchApp(options) {
     return false;
   }
 
+  function toggleHideCompleted() {
+    state.hideCompleted = !state.hideCompleted;
+    persistIndex();
+    renderHeader();
+    renderTasksView(true);
+  }
+
   function toggleTask(idx, tileEl) {
     if (idx < 0 || idx >= state.items.length) return;
     var target = state.items[idx];
@@ -710,9 +776,12 @@ export function createWatchApp(options) {
     state.syncingPending = false;
     state.error = "";
 
-    // Instant O(1) update of only the tapped tile and status bar —
-    // no VirtualTileList length reset, no scroll jump, and no blocking BLE round-trip.
-    if (tileEl) {
+    if (state.hideCompleted && nextCompleted) {
+      // Autohide active: remove the newly checked item (and empty category header) immediately
+      renderTasksView(false);
+    } else if (tileEl) {
+      // Instant O(1) update of only the tapped tile and status bar —
+      // no VirtualTileList length reset, no scroll jump, and no blocking BLE round-trip.
       applyTaskCompletedUI(tileEl, nextCompleted);
     } else {
       renderTasksView(false);
@@ -729,8 +798,8 @@ export function createWatchApp(options) {
       state.syncing = false;
       state.syncingPending = false;
       render({
-        resetTasksScroll: state.items.length > 0,
-        resetListsScroll: state.calendars.length > 0,
+        resetTasksScroll: hasVisibleTasks(),
+        resetListsScroll: true,
       });
       return;
     }
@@ -889,12 +958,13 @@ export function createWatchApp(options) {
   function start() {
     initDelegates();
 
-    // Immediately restore cached list catalog and last-opened list from Fitbit File Storage
+    // Immediately restore cached list catalog, hideCompleted preference, and last-opened list
     var index = readListsIndex(fs);
     if (index) {
       state.calendars = index.calendars;
       state.categoryOrder = index.categoryOrder;
       state.activeCalendarHref = index.activeCalendarHref;
+      state.hideCompleted = Boolean(index.hideCompleted);
       if (state.activeCalendarHref) {
         state.view = "tasks";
         var storedList = readListStore(fs, state.activeCalendarHref);
@@ -909,7 +979,7 @@ export function createWatchApp(options) {
       }
     }
 
-    // Render cached UI immediately (scrolled past row 0 Sync tile), then sync in background
+    // Render cached UI immediately (scrolled past rows 0-1 onto row 2), then sync in background
     render({ resetTasksScroll: true, resetListsScroll: true });
     requestSync();
   }
@@ -921,6 +991,7 @@ export function createWatchApp(options) {
     openListsView: openListsView,
     goBack: goBack,
     toggleTask: toggleTask,
+    toggleHideCompleted: toggleHideCompleted,
     requestSync: requestSync,
     flushPersistence: flushPersistence,
     onMessage: onMessage,
@@ -931,6 +1002,7 @@ export function createWatchApp(options) {
         calendars: state.calendars.slice(),
         activeCalendarHref: state.activeCalendarHref,
         activeCalendarName: getActiveCalendarName(),
+        hideCompleted: state.hideCompleted,
         items: state.items.slice(),
         pending: state.pending.slice(),
         categoryOrder: getEffectiveCategoryOrder().slice(),
